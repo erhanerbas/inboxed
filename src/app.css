@@ -1,1 +1,110 @@
 @import "tailwindcss";
+
+@theme {
+  /* Only these colors exist. Tailwind's palette is removed on purpose. */
+  --color-*: initial;
+  --color-canvas: #161515;
+  --color-sidebar: #1c1b1b;
+  --color-panel: #201f1e;
+  --color-raised: #2b2928;
+  --color-selected: #3a2b18;
+  --color-line: #ffffff14;
+  --color-ink: #f5f4f3;
+  --color-ink-muted: #a8a4a0;
+  --color-accent: #ff9f0a;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Type scale: tracking tightens as size grows. */
+  --text-*: initial;
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--letter-spacing: 0.01em;
+  --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.125rem;
+  --text-heading: 0.9375rem;
+  --text-heading--line-height: 1.25rem;
+  --text-heading--font-weight: 600;
+  --text-read: 0.9375rem;
+  --text-read--line-height: 1.6;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.02em;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-canvas font-sans text-ui text-ink antialiased;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* App chrome isn't selectable. Message content and form fields are. */
+  .selectable,
+  input,
+  textarea,
+  select {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .selectable {
+    cursor: auto;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+  /* macOS: the window is transparent so the native sidebar vibrancy shows through. */
+  [data-platform="mac"] body {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .sidebar-material {
+    background: var(--color-sidebar);
+  }
+  [data-platform="mac"] .sidebar-material {
+    background: color-mix(in srgb, var(--color-sidebar) 55%, transparent);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    [data-platform="mac"] .sidebar-material {
+      background: var(--color-sidebar);
+    }
+  }
+
+  .icon-btn {
+    @apply grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-100 hover:bg-raised hover:text-ink active:bg-raised;
+  }
+  .rail-btn {
+    @apply grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-raised/70 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink;
+  }
+  .btn-primary {
+    @apply h-8 rounded-lg bg-accent px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
+  }
+
+  /* One-line "Label  value" row, used in compose. */
+  .field {
+    @apply flex h-10 shrink-0 items-center gap-3 border-b border-line px-4;
+    & > span {
+      @apply w-14 shrink-0 text-ink-muted;
+    }
+    & > input,
+    & > select {
+      @apply h-full min-w-0 flex-1 bg-transparent text-ink outline-none;
+    }
+  }
+  /* Label above its input, used in forms. */
+  .stack-field {
+    @apply flex flex-col gap-1.5 text-caption font-medium text-ink-muted;
+    & > input {
+      @apply h-9 rounded-lg border border-line bg-panel px-3 text-ui font-normal text-ink outline-none focus:border-accent;
+    }
+  }
+}
