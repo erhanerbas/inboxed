@@ -1,6 +1,8 @@
 <script lang="ts">
   import MessageList from "$lib/components/MessageList.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
+  import ThreadView from "$lib/components/ThreadView.svelte";
+  import { ui } from "$lib/state.svelte";
 </script>
 
 <div class="flex h-screen overflow-hidden">
@@ -9,6 +11,8 @@
     <MessageList />
   </div>
   <main class="min-w-0 flex-1 border-l border-line bg-canvas">
-    <div data-tauri-drag-region class="h-13"></div>
+    {#key ui.threadId}
+      <ThreadView />
+    {/key}
   </main>
 </div>
