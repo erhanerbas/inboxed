@@ -53,6 +53,11 @@
   .selectable {
     cursor: auto;
   }
+  /* macOS text fields have no spinners. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+  }
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: -2px;

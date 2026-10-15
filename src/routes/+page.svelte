@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AddAccount from "$lib/components/AddAccount.svelte";
   import Compose from "$lib/components/Compose.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -29,4 +30,7 @@
 
 {#if ui.composing}
   <Compose />
+{/if}
+{#if ui.addingAccount}
+  <AddAccount />
 {/if}
