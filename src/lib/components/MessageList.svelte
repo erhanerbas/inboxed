@@ -1,8 +1,6 @@
 <script lang="ts">
-  import Inbox from "@lucide/svelte/icons/inbox";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
-  import Search from "@lucide/svelte/icons/search";
-  import Star from "@lucide/svelte/icons/star";
+  import { Attachment01Icon, InboxIcon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
+  import Icon from "./Icon.svelte";
   import { data, ui, openThread } from "$lib/state.svelte";
   import { threadsFor, visibleMailboxes } from "$lib/views";
   import { formatDate } from "$lib/format";
@@ -41,7 +39,7 @@
 
   <div class="px-3 pb-2">
     <label class="flex h-8 items-center gap-2 rounded-lg bg-raised px-2.5 text-ink-muted focus-within:ring-2 focus-within:ring-accent">
-      <Search size={14} />
+      <Icon icon={Search01Icon} size={14} />
       <input
         bind:value={ui.query}
         placeholder="Search"
@@ -85,11 +83,11 @@
             <span class="flex items-center gap-1.5">
               <span class="min-w-0 flex-1 truncate">{t.subject}</span>
               {#if t.hasAttachments}
-                <Paperclip size={13} class="shrink-0 text-ink-muted" />
+                <Icon icon={Attachment01Icon} size={13} class="shrink-0 text-ink-muted" />
                 <span class="sr-only">Has attachments.</span>
               {/if}
               {#if t.starred}
-                <Star size={13} class="shrink-0 fill-accent text-accent" />
+                <Icon icon={StarIcon} size={13} class="shrink-0 fill-accent text-accent" />
                 <span class="sr-only">Starred.</span>
               {/if}
             </span>
@@ -101,7 +99,7 @@
   {:else}
     <div class="grid flex-1 place-items-center text-ink-muted">
       <div class="flex flex-col items-center gap-2">
-        <Inbox size={28} />
+        <Icon icon={InboxIcon} size={28} />
         <p>{ui.query ? "No results" : "No messages"}</p>
       </div>
     </div>

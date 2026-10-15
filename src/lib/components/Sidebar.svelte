@@ -1,28 +1,31 @@
 <script lang="ts">
-  import Archive from "@lucide/svelte/icons/archive";
-  import FilePen from "@lucide/svelte/icons/file-pen";
-  import Folder from "@lucide/svelte/icons/folder";
-  import Inbox from "@lucide/svelte/icons/inbox";
-  import Layers from "@lucide/svelte/icons/layers";
-  import Plus from "@lucide/svelte/icons/plus";
-  import Send from "@lucide/svelte/icons/send";
-  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
-  import SquarePen from "@lucide/svelte/icons/square-pen";
-  import Star from "@lucide/svelte/icons/star";
-  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import {
+    Archive02Icon,
+    Delete02Icon,
+    Folder01Icon,
+    InboxIcon,
+    Layers01Icon,
+    NoteEditIcon,
+    PencilEdit02Icon,
+    PlusSignIcon,
+    SentIcon,
+    SpamIcon,
+    StarIcon,
+  } from "@hugeicons/core-free-icons";
+  import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import { data, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
   import { visibleMailboxes } from "$lib/views";
   import type { Mailbox } from "$lib/types";
 
   const roleIcons = {
-    inbox: Inbox,
-    starred: Star,
-    drafts: FilePen,
-    sent: Send,
-    archive: Archive,
-    spam: ShieldAlert,
-    trash: Trash2,
+    inbox: InboxIcon,
+    starred: StarIcon,
+    drafts: NoteEditIcon,
+    sent: SentIcon,
+    archive: Archive02Icon,
+    spam: SpamIcon,
+    trash: Delete02Icon,
   };
 
   const boxes = $derived(visibleMailboxes(data.mailboxes, ui.accountId));
@@ -35,7 +38,7 @@
 <aside class="sidebar-material flex h-full w-64 shrink-0 flex-col">
   <div data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-end px-2">
     <button class="icon-btn" aria-label="New message" title="New message (⌘N)" onclick={() => (ui.composing = true)}>
-      <SquarePen size={17} />
+      <Icon icon={PencilEdit02Icon} size={17} />
     </button>
   </div>
 
@@ -48,7 +51,7 @@
         aria-pressed={ui.accountId === "all"}
         onclick={() => selectAccount("all")}
       >
-        <Layers size={18} />
+        <Icon icon={Layers01Icon} size={18} />
       </button>
       {#each data.accounts as a (a.id)}
         <button
@@ -62,7 +65,7 @@
         </button>
       {/each}
       <button class="rail-btn mt-auto" aria-label="Add account" title="Add account" onclick={() => (ui.addingAccount = true)}>
-        <Plus size={18} />
+        <Icon icon={PlusSignIcon} size={18} />
       </button>
     </nav>
 
@@ -82,7 +85,7 @@
 </aside>
 
 {#snippet row(m: Mailbox)}
-  {@const Icon = m.role ? roleIcons[m.role] : Folder}
+  {@const glyph = m.role ? roleIcons[m.role] : Folder01Icon}
   {@const selected = ui.mailboxKey === m.id}
   <button
     class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-100 {selected
@@ -91,7 +94,7 @@
     aria-current={selected ? "page" : undefined}
     onclick={() => selectMailbox(m.id)}
   >
-    <Icon size={16} class="shrink-0 {selected ? 'text-accent' : 'text-ink-muted'}" />
+    <Icon icon={glyph} size={16} class="shrink-0 {selected ? 'text-accent' : 'text-ink-muted'}" />
     <span class="min-w-0 flex-1 truncate">{m.name}</span>
     {#if m.unread}
       <span class="text-caption tabular-nums {m.role === 'inbox' ? 'font-semibold text-accent' : 'text-ink-muted'}">

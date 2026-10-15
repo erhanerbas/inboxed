@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Trash2 from "@lucide/svelte/icons/trash-2";
-  import X from "@lucide/svelte/icons/x";
+  import { Cancel01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+  import Icon from "./Icon.svelte";
   import { rise } from "$lib/motion";
   import { data, ui } from "$lib/state.svelte";
 
@@ -30,7 +30,7 @@
 >
   <header class="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
     <h2 class="font-semibold">New message</h2>
-    <button type="button" class="icon-btn" aria-label="Close" title="Close" onclick={close}><X size={16} /></button>
+    <button type="button" class="icon-btn" aria-label="Close" title="Close" onclick={close}><Icon icon={Cancel01Icon} size={16} /></button>
   </header>
 
   <label class="field">
@@ -48,7 +48,7 @@
 
   <footer class="flex shrink-0 items-center justify-between border-t border-line px-3 py-2">
     <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" onclick={close}>
-      <Trash2 size={16} />
+      <Icon icon={Delete02Icon} size={16} />
     </button>
     <button class="btn-primary">Send</button>
   </footer>

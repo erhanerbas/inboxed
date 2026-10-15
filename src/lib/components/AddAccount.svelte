@@ -1,7 +1,6 @@
 <script lang="ts">
-  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
-  import Mail from "@lucide/svelte/icons/mail";
-  import X from "@lucide/svelte/icons/x";
+  import { ArrowLeft01Icon, Cancel01Icon, Mail01Icon } from "@hugeicons/core-free-icons";
+  import Icon from "./Icon.svelte";
   import { rise } from "$lib/motion";
   import { ui } from "$lib/state.svelte";
   import type { Provider } from "$lib/types";
@@ -29,11 +28,11 @@
   <header class="mb-5 flex items-center gap-2">
     {#if provider}
       <button class="icon-btn -ml-2" aria-label="Back" onclick={() => (provider = undefined)}>
-        <ChevronLeft size={16} />
+        <Icon icon={ArrowLeft01Icon} size={16} />
       </button>
     {/if}
     <h2 id="add-account-title" class="flex-1 text-heading">{provider?.name ?? "Add an account"}</h2>
-    <button class="icon-btn -mr-2" aria-label="Close" onclick={() => dialog?.close()}><X size={16} /></button>
+    <button class="icon-btn -mr-2" aria-label="Close" onclick={() => dialog?.close()}><Icon icon={Cancel01Icon} size={16} /></button>
   </header>
 
   {#if !provider}
@@ -44,7 +43,7 @@
             class="flex w-full flex-col items-start rounded-xl border border-line p-4 text-left transition-colors duration-100 hover:bg-panel active:bg-panel"
             onclick={() => (provider = p)}
           >
-            <Mail size={18} class="text-accent" />
+            <Icon icon={Mail01Icon} size={18} class="text-accent" />
             <span class="mt-3 font-semibold">{p.name}</span>
             <span class="text-caption text-ink-muted">{p.hint}</span>
           </button>

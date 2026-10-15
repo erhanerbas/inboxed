@@ -1,13 +1,16 @@
 <script lang="ts">
-  import Archive from "@lucide/svelte/icons/archive";
-  import Ellipsis from "@lucide/svelte/icons/ellipsis";
-  import Forward from "@lucide/svelte/icons/forward";
-  import Mail from "@lucide/svelte/icons/mail";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
-  import Reply from "@lucide/svelte/icons/reply";
-  import ReplyAll from "@lucide/svelte/icons/reply-all";
-  import Star from "@lucide/svelte/icons/star";
-  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import {
+    Archive02Icon,
+    Attachment01Icon,
+    Delete02Icon,
+    MailSend01Icon,
+    Mail01Icon,
+    MailReply01Icon,
+    MailReplyAll01Icon,
+    MoreHorizontalIcon,
+    StarIcon,
+  } from "@hugeicons/core-free-icons";
+  import Icon from "./Icon.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
   import { data, ui } from "$lib/state.svelte";
@@ -19,13 +22,13 @@
   // Grouped by what they do to the conversation: file it away, or answer it.
   const actionGroups = [
     [
-      { label: "Archive", icon: Archive },
-      { label: "Delete", icon: Trash2 },
+      { label: "Archive", icon: Archive02Icon },
+      { label: "Delete", icon: Delete02Icon },
     ],
     [
-      { label: "Reply", icon: Reply },
-      { label: "Reply all", icon: ReplyAll },
-      { label: "Forward", icon: Forward },
+      { label: "Reply", icon: MailReply01Icon },
+      { label: "Reply all", icon: MailReplyAll01Icon },
+      { label: "Forward", icon: MailSend01Icon },
     ],
   ];
 
@@ -47,7 +50,7 @@
       {#each actionGroups as group, g (g)}
         <div class="flex gap-0.5">
           {#each group as a (a.label)}
-            <button class="icon-btn" aria-label={a.label} title={a.label}><a.icon size={17} /></button>
+            <button class="icon-btn" aria-label={a.label} title={a.label}><Icon icon={a.icon} size={17} /></button>
           {/each}
         </div>
       {/each}
@@ -58,7 +61,7 @@
         aria-pressed={thread.starred}
         onclick={() => (thread.starred = !thread.starred)}
       >
-        <Star size={17} class={thread.starred ? "fill-accent text-accent" : ""} />
+        <Icon icon={StarIcon} size={17} class={thread.starred ? "fill-accent text-accent" : ""} />
       </button>
     </header>
 
@@ -102,7 +105,7 @@
                       aria-expanded={quotesShown.has(m.id)}
                       onclick={() => toggle(quotesShown, m.id)}
                     >
-                      <Ellipsis size={14} />
+                      <Icon icon={MoreHorizontalIcon} size={14} />
                     </button>
                   {/if}
                   {#if body.quoted && (!body.text || quotesShown.has(m.id))}
@@ -112,7 +115,7 @@
                     <ul class="mt-4 flex flex-wrap gap-2">
                       {#each m.attachments as a}
                         <li class="flex items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 text-caption">
-                          <Paperclip size={12} class="text-ink-muted" />
+                          <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
                           {a.name}
                           <span class="text-ink-muted">{formatSize(a.size)}</span>
                         </li>
@@ -130,7 +133,7 @@
 {:else}
   <div data-tauri-drag-region class="grid h-full place-items-center text-ink-muted">
     <div class="flex flex-col items-center gap-2">
-      <Mail size={28} />
+      <Icon icon={Mail01Icon} size={28} />
       <p>No conversation selected</p>
     </div>
   </div>
