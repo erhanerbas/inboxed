@@ -15,8 +15,12 @@
   }
 </script>
 
-<!-- The add-account dialog handles its own Esc. -->
-<svelte:window onkeydown={(e) => e.key === "Escape" && !ui.addingAccount && close()} />
+<!-- Esc closes the panel unless something else already handled it (search, an IME, the add-account dialog). -->
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !ui.addingAccount) close();
+  }}
+/>
 
 <form
   transition:rise

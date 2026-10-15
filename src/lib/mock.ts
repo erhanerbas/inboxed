@@ -94,9 +94,12 @@ export const threads: Thread[] = [
   thread("t2", "a1", ["inbox", "travel-2026"], "Your flight to Lisbon is confirmed", { unread: true }, [
     msg(skyline, [you1], 2 * HOUR, "Booking reference: K7Q2XP\n\nOutbound: Fri 6 Nov, 07:40 to Lisbon\nReturn: Mon 9 Nov, 18:15\n\nYour boarding pass is attached. Online check-in opens 36 hours before departure.", [
       { name: "boarding-pass.pdf", size: 182_000 },
+      // Real mail often repeats inline-image names.
+      { name: "image001.png", size: 4_200 },
+      { name: "image001.png", size: 3_900 },
     ]),
   ]),
-  thread("t3", "a1", ["inbox", "starred"], "Dinner on Saturday?", { starred: true }, [
+  thread("t3", "a1", ["inbox"], "Dinner on Saturday?", { starred: true }, [
     msg(sam, [you1], DAY + 3 * HOUR, "Are you free Saturday? Thinking of the new place on Harbour Street, around 8."),
     msg(you1, [sam], DAY, "Saturday works. 8 is perfect, I'll book a table.\n\nOn Thu, Sam Rivera wrote:\n> Are you free Saturday? Thinking of the new place on Harbour Street, around 8."),
   ]),

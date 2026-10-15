@@ -47,6 +47,17 @@ describe("threadsFor", () => {
     expect(threadsFor(threads, boxes, "a1", "a1-receipts").map((t) => t.id)).toEqual(["t3"]);
   });
 
+  it("shows starred threads by flag, not by mailbox membership", () => {
+    const starred = [
+      { ...th("s1", "a1", ["a1-inbox"], "2026-10-15T09:00:00.000Z", "Flagged"), starred: true },
+      { ...th("s2", "a2", ["a2-inbox"], "2026-10-14T09:00:00.000Z", "Work flagged"), starred: true },
+      th("s3", "a1", ["a1-starred"], "2026-10-13T09:00:00.000Z", "Unstarred but still filed"),
+    ];
+    const withStarred = [...boxes, mb("a1-starred", "a1", "starred")];
+    expect(threadsFor(starred, withStarred, "all", "starred").map((t) => t.id)).toEqual(["s1", "s2"]);
+    expect(threadsFor(starred, withStarred, "a1", "a1-starred").map((t) => t.id)).toEqual(["s1"]);
+  });
+
   it("searches subject and participants case-insensitively", () => {
     expect(threadsFor(threads, boxes, "all", "inbox", "roadMAP").map((t) => t.id)).toEqual(["t2"]);
     expect(threadsFor(threads, boxes, "all", "inbox", "maya").map((t) => t.id)).toEqual(["t2", "t1"]);

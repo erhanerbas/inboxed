@@ -110,7 +110,7 @@
                   {/if}
                   {#if m.attachments.length}
                     <ul class="mt-4 flex flex-wrap gap-2">
-                      {#each m.attachments as a (a.name)}
+                      {#each m.attachments as a}
                         <li class="flex items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 text-caption">
                           <Paperclip size={12} class="text-ink-muted" />
                           {a.name}

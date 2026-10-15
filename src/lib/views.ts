@@ -34,13 +34,19 @@ export function threadsFor(
   key: string,
   query = "",
 ): Thread[] {
+  const role = accountId === "all" ? key : mailboxes.find((m) => m.id === key)?.role;
   const ids = accountId === "all" ? mailboxes.filter((m) => m.role === key).map((m) => m.id) : [key];
+  // Starred is a flag, not a folder: star a thread and it shows up there, wherever it's filed.
+  const inView = (t: Thread) =>
+    role === "starred"
+      ? t.starred && (accountId === "all" || t.accountId === accountId)
+      : t.mailboxIds.some((id) => ids.includes(id));
   const q = query.trim().toLowerCase();
   const matches = (t: Thread) =>
     [t.subject, t.snippet, ...t.participants.map((p) => `${p.name} ${p.email}`)].some((s) =>
       s.toLowerCase().includes(q),
     );
   return threads
-    .filter((t) => t.mailboxIds.some((id) => ids.includes(id)) && (!q || matches(t)))
+    .filter((t) => inView(t) && (!q || matches(t)))
     .sort((a, b) => b.lastDate.localeCompare(a.lastDate));
 }

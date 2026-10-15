@@ -13,15 +13,22 @@
   );
   const accountColor = (id: string) => data.accounts.find((a) => a.id === id)?.color;
 
-  function move(e: KeyboardEvent, i: number) {
+  // On the window, because WebKit doesn't focus a button when it's clicked.
+  function move(e: KeyboardEvent) {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    // Only when the list, or nothing, has focus: arrows inside a field belong to that field.
+    const target = e.target as HTMLElement;
+    if (target !== document.body && !target.closest("#message-list")) return;
     e.preventDefault();
-    const next = list[i + (e.key === "ArrowDown" ? 1 : -1)];
+    const i = list.findIndex((t) => t.id === ui.threadId);
+    const next = list[i === -1 ? 0 : i + (e.key === "ArrowDown" ? 1 : -1)];
     if (!next) return;
     openThread(next.id);
     document.getElementById(`thread-${next.id}`)?.focus();
   }
 </script>
+
+<svelte:window onkeydown={move} />
 
 <section aria-label="Messages" class="flex h-full flex-col">
   <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 px-4">
@@ -39,15 +46,19 @@
         bind:value={ui.query}
         placeholder="Search"
         aria-label="Search messages"
-        onkeydown={(e) => e.key === "Escape" && (ui.query = "")}
+        onkeydown={(e) => {
+          if (e.key !== "Escape") return;
+          e.preventDefault(); // handled here, so an open compose panel stays open
+          ui.query = "";
+        }}
         class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-ink-muted"
       />
     </label>
   </div>
 
   {#if list.length}
-    <ul class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-      {#each list as t, i (t.id)}
+    <ul id="message-list" class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      {#each list as t (t.id)}
         {@const selected = ui.threadId === t.id}
         <li>
           <button
@@ -57,7 +68,6 @@
               : 'hover:bg-raised/60 active:bg-raised'}"
             aria-current={selected ? "true" : undefined}
             onclick={() => openThread(t.id)}
-            onkeydown={(e) => move(e, i)}
           >
             {#if t.unread}
               <span class="absolute top-[1.0625rem] left-2 size-1.5 rounded-full bg-accent"></span>
