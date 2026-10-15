@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Attachment01Icon, InboxIcon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
   import Icon from "./Icon.svelte";
+  import { contextmenu } from "$lib/contextmenu";
+  import { threadMenu } from "$lib/menus";
   import { data, ui, openThread } from "$lib/state.svelte";
   import { threadsFor, visibleMailboxes } from "$lib/views";
   import { formatDate } from "$lib/format";
@@ -29,7 +31,13 @@
 <svelte:window onkeydown={move} />
 
 <section aria-label="Messages" class="flex h-full flex-col">
-  <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 px-4">
+  <!-- With the sidebar collapsed, the toolbar buttons sit over this header's leading edge, so the title moves aside. -->
+  <header
+    data-tauri-drag-region
+    class="flex h-13 shrink-0 items-center justify-between gap-3 pr-4 transition-[padding] duration-200 ease-out motion-reduce:transition-none {ui.sidebarCollapsed
+      ? 'pl-[5.5rem]'
+      : 'pl-4'}"
+  >
     <h2 class="truncate text-heading">{title}</h2>
     <span class="shrink-0 text-caption text-ink-muted">
       {list.length}
@@ -66,6 +74,7 @@
               : 'hover:bg-raised/60 active:bg-raised'}"
             aria-current={selected ? "true" : undefined}
             onclick={() => openThread(t.id)}
+            use:contextmenu={() => threadMenu(t, true)}
           >
             {#if t.unread}
               <span class="absolute top-[1.0625rem] left-2 size-1.5 rounded-full bg-accent"></span>

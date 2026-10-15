@@ -5,7 +5,9 @@
   import { data, ui } from "$lib/state.svelte";
 
   let to = $state<HTMLInputElement>();
-  $effect(() => to?.focus());
+  let body = $state<HTMLTextAreaElement>();
+  // A reply already knows who it's for, so start in the message body.
+  $effect(() => (ui.draft.to ? body : to)?.focus());
 
   const close = () => (ui.composing = false);
   // Sending is wired up in Phase 5; for now Send just closes the panel.
@@ -41,10 +43,10 @@
       {/each}
     </select>
   </label>
-  <label class="field"><span>To</span><input bind:this={to} type="email" multiple required /></label>
+  <label class="field"><span>To</span><input bind:this={to} type="email" multiple required value={ui.draft.to} /></label>
   <label class="field"><span>Cc</span><input type="email" multiple /></label>
-  <label class="field"><span>Subject</span><input /></label>
-  <textarea aria-label="Message" class="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-read outline-none"></textarea>
+  <label class="field"><span>Subject</span><input value={ui.draft.subject} /></label>
+  <textarea bind:this={body} aria-label="Message" class="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-read outline-none"></textarea>
 
   <footer class="flex shrink-0 items-center justify-between border-t border-line px-3 py-2">
     <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" onclick={close}>

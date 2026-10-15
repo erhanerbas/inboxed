@@ -13,22 +13,21 @@
   import Icon from "./Icon.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
-  import { data, ui } from "$lib/state.svelte";
+  import { archive, data, forward, reply, toggleStar, trash, ui } from "$lib/state.svelte";
   import { formatDate, formatSize } from "$lib/format";
   import { splitQuoted, unquote } from "$lib/quote";
   import type { Address, Message } from "$lib/types";
 
-  // Archive, delete, reply and forward get wired up in later phases.
-  // Grouped by what they do to the conversation: file it away, or answer it.
+  // Grouped by what they do to the conversation: file it away, or answer it. Labels match the right-click menu.
   const actionGroups = [
     [
-      { label: "Archive", icon: Archive02Icon },
-      { label: "Delete", icon: Delete02Icon },
+      { label: "Archive", keys: "⌃⌘A", icon: Archive02Icon, run: archive },
+      { label: "Move to Trash", keys: "⌫", icon: Delete02Icon, run: trash },
     ],
     [
-      { label: "Reply", icon: MailReply01Icon },
-      { label: "Reply all", icon: MailReplyAll01Icon },
-      { label: "Forward", icon: MailSend01Icon },
+      { label: "Reply", keys: "⌘R", icon: MailReply01Icon, run: (id: string) => reply(id) },
+      { label: "Reply All", keys: "⇧⌘R", icon: MailReplyAll01Icon, run: (id: string) => reply(id, true) },
+      { label: "Forward", keys: "⇧⌘F", icon: MailSend01Icon, run: forward },
     ],
   ];
 
@@ -51,16 +50,18 @@
       {#each actionGroups as group, g (g)}
         <div class="flex gap-0.5">
           {#each group as a (a.label)}
-            <button class="icon-btn" aria-label={a.label} title={a.label}><Icon icon={a.icon} size={17} /></button>
+            <button class="icon-btn" aria-label={a.label} title="{a.label} ({a.keys})" onclick={() => a.run(thread.id)}>
+              <Icon icon={a.icon} size={17} />
+            </button>
           {/each}
         </div>
       {/each}
       <button
         class="icon-btn"
         aria-label="Star"
-        title="Star"
+        title="Star (⇧⌘L)"
         aria-pressed={thread.starred}
-        onclick={() => (thread.starred = !thread.starred)}
+        onclick={() => toggleStar(thread.id)}
       >
         <Icon icon={StarIcon} size={17} class={thread.starred ? "fill-accent text-accent" : ""} />
       </button>

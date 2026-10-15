@@ -87,8 +87,33 @@
   .icon-btn {
     @apply grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-100 hover:bg-raised hover:text-ink active:bg-raised;
   }
+  /* The account rail is the structural layer: a heavier material than the mailbox list beside it. */
+  .rail-material {
+    background: color-mix(in srgb, var(--color-canvas) 45%, transparent);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .rail-material {
+      background: var(--color-canvas);
+    }
+  }
   .rail-btn {
-    @apply grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-raised/70 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink;
+    @apply relative grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-raised/70 hover:text-ink active:bg-raised;
+  }
+  .rail-btn[aria-current="true"] {
+    @apply bg-raised text-ink;
+  }
+  /* The fill alone is 1.19:1 against the rail, so selection also gets a shape: an accent bar on the leading edge. */
+  .rail-btn[aria-current="true"]::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: -1.25rem;
+    top: 50%;
+    translate: 0 -50%;
+    width: 3px;
+    height: 1.25rem;
+    border-start-end-radius: 3px;
+    border-end-end-radius: 3px;
+    background: var(--color-accent);
   }
   .btn-primary {
     @apply h-8 rounded-lg bg-accent px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
