@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>Inboxed</title>
+    <script>
+      document.documentElement.dataset.platform = /Mac/.test(navigator.userAgent) ? "mac" : "other";
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

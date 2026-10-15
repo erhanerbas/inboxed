@@ -1,20 +1,11 @@
-<script lang="ts">
-  import { api } from "$lib/engine";
-
-  const health = api<{ status: string }>("/health");
-</script>
-
-<main class="grid h-screen place-items-center bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100">
-  <div class="text-center">
-    <h1 class="text-2xl font-semibold">Inboxed</h1>
-    <p class="mt-2 text-sm text-neutral-500">
-      {#await health}
-        Connecting to engine…
-      {:then h}
-        Engine: {h.status}
-      {:catch e}
-        <span class="text-red-600">Engine error: {e.message}</span>
-      {/await}
-    </p>
-  </div>
-</main>
+<div class="flex h-screen overflow-hidden">
+  <aside class="sidebar-material w-64 shrink-0">
+    <div data-tauri-drag-region class="h-13"></div>
+  </aside>
+  <section class="w-[22rem] shrink-0 border-l border-line bg-panel">
+    <div data-tauri-drag-region class="h-13"></div>
+  </section>
+  <main class="min-w-0 flex-1 border-l border-line bg-canvas">
+    <div data-tauri-drag-region class="h-13"></div>
+  </main>
+</div>
