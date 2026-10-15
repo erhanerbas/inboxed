@@ -15,7 +15,7 @@
   import Avatar from "./Avatar.svelte";
   import { data, ui } from "$lib/state.svelte";
   import { formatDate, formatSize } from "$lib/format";
-  import { splitQuoted } from "$lib/quote";
+  import { splitQuoted, unquote } from "$lib/quote";
   import type { Address, Message } from "$lib/types";
 
   // Archive, delete, reply and forward get wired up in later phases.
@@ -42,6 +42,7 @@
     else set.add(id);
   }
   const names = (list: Address[]) => list.map((a) => a.name).join(", ");
+  const preview = (m: Message) => (splitQuoted(m.body).text || m.body).replace(/\s+/g, " ");
 </script>
 
 {#if thread}
@@ -67,40 +68,52 @@
 
     <div class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-3xl px-8 pt-6 pb-10">
-        <h1 class="selectable text-title font-semibold wrap-anywhere">{thread.subject}</h1>
+        <h1 class="selectable text-title font-semibold text-balance wrap-anywhere">{thread.subject}</h1>
         <p class="mt-1 text-caption text-ink-muted">
           {thread.messages.length}
           {thread.messages.length === 1 ? "message" : "messages"}
         </p>
 
-        <ol class="mt-6 flex flex-col gap-2">
+        <!-- One flat list: hairlines separate messages, space separates the parts of one message. -->
+        <ol class="mt-6 divide-y divide-line border-t border-line">
           {#each thread.messages as m, i (m.id)}
             {@const latest = i === thread.messages.length - 1}
             {@const open = latest || expanded.has(m.id)}
             {@const body = splitQuoted(m.body)}
-            <li class="rounded-xl border border-line bg-panel">
-              {#if latest}
-                <div class="flex items-start gap-3 px-5 pt-4">{@render head(m, open)}</div>
-              {:else}
-                <button
-                  class="flex w-full items-start gap-3 rounded-xl px-5 text-left transition-colors duration-100 hover:bg-raised/40 active:bg-raised/60 {open
-                    ? 'pt-4'
-                    : 'py-3'}"
-                  aria-expanded={open}
-                  onclick={() => toggle(expanded, m.id)}
-                >
-                  {@render head(m, open)}
-                </button>
-              {/if}
+            <li class={open ? "pt-4 pb-6" : "py-1"}>
+              <h2>
+                {#if latest}
+                  {@render header(m)}
+                {:else}
+                  <button
+                    class="-mx-3 block w-[calc(100%+1.5rem)] rounded-lg px-3 text-left transition-colors duration-100 hover:bg-raised/40 active:bg-raised/60 {open
+                      ? 'py-1'
+                      : 'py-2'}"
+                    aria-expanded={open}
+                    onclick={() => toggle(expanded, m.id)}
+                  >
+                    {#if open}
+                      {@render header(m)}
+                    {:else}
+                      <span class="flex items-center gap-3">
+                        <span class="grid w-8 shrink-0 place-items-center"><Avatar name={m.from.name} size={24} /></span>
+                        <span class="max-w-[40%] shrink-0 truncate font-semibold">{m.from.name}</span>
+                        <span class="min-w-0 flex-1 truncate text-ink-muted">{preview(m)}</span>
+                        <time datetime={m.date} class="shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
+                      </span>
+                    {/if}
+                  </button>
+                {/if}
+              </h2>
 
               {#if open}
-                <div class="selectable pt-3 pr-5 pb-5 pl-16 text-read wrap-anywhere">
+                <div class="selectable mt-4 text-read wrap-anywhere">
                   {#if body.text}
-                    <p class="whitespace-pre-wrap">{body.text}</p>
+                    <p class="max-w-[68ch] whitespace-pre-wrap">{body.text}</p>
                   {/if}
                   {#if body.quoted && body.text}
                     <button
-                      class="mt-2 grid h-5 w-8 place-items-center rounded-full bg-raised text-ink-muted hover:text-ink"
+                      class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-raised/60"
                       aria-label="Show quoted text"
                       aria-expanded={quotesShown.has(m.id)}
                       onclick={() => toggle(quotesShown, m.id)}
@@ -109,7 +122,9 @@
                     </button>
                   {/if}
                   {#if body.quoted && (!body.text || quotesShown.has(m.id))}
-                    <p class="mt-3 border-l-2 border-line pl-3 whitespace-pre-wrap text-ink-muted">{body.quoted}</p>
+                    <p class="mt-3 max-w-[68ch] border-l-2 border-line pl-3 whitespace-pre-wrap text-ink-muted">
+                      {unquote(body.quoted)}
+                    </p>
                   {/if}
                   {#if m.attachments.length}
                     <ul class="mt-4 flex flex-wrap gap-2">
@@ -134,28 +149,26 @@
   <div data-tauri-drag-region class="grid h-full place-items-center text-ink-muted">
     <div class="flex flex-col items-center gap-2">
       <Icon icon={Mail01Icon} size={28} />
-      <p>No conversation selected</p>
+      <p>Select a conversation to read it</p>
     </div>
   </div>
 {/if}
 
-{#snippet head(m: Message, open: boolean)}
-  <!-- Fixed-width slot so names line up whether the message is open or collapsed. -->
-  <span class="grid w-8 shrink-0 place-items-center"><Avatar name={m.from.name} size={open ? 32 : 24} /></span>
-  <div class="min-w-0 flex-1">
-    <div class="flex items-baseline gap-2">
-      <span class="truncate font-semibold">{m.from.name}</span>
-      {#if open}
-        <span class="truncate text-caption text-ink-muted">{m.from.email}</span>
-      {/if}
-      <time datetime={m.date} class="ml-auto shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
-    </div>
-    {#if open}
-      <p class="truncate text-caption text-ink-muted">
+<!-- Header of an open message. Spans only: it can sit inside a button. Sender and recipients wrap rather than truncate. -->
+{#snippet header(m: Message)}
+  <span class="flex items-start gap-3">
+    <Avatar name={m.from.name} size={32} />
+    <span class="block min-w-0 flex-1">
+      <span class="flex items-baseline gap-3">
+        <span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+          <span class="font-semibold">{m.from.name}</span>
+          <span class="text-caption text-ink-muted wrap-anywhere">{m.from.email}</span>
+        </span>
+        <time datetime={m.date} class="shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
+      </span>
+      <span class="block text-caption text-ink-muted">
         To {names(m.to)}{m.cc.length ? ` · Cc ${names(m.cc)}` : ""}
-      </p>
-    {:else}
-      <p class="truncate text-ink-muted">{(splitQuoted(m.body).text || m.body).replace(/\s+/g, " ")}</p>
-    {/if}
-  </div>
+      </span>
+    </span>
+  </span>
 {/snippet}

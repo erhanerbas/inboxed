@@ -30,7 +30,7 @@
 
 <section aria-label="Messages" class="flex h-full flex-col">
   <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 px-4">
-    <h1 class="truncate text-heading">{title}</h1>
+    <h2 class="truncate text-heading">{title}</h2>
     <span class="shrink-0 text-caption text-ink-muted">
       {list.length}
       {list.length === 1 ? "conversation" : "conversations"}

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { splitQuoted } from "./quote";
+import { splitQuoted, unquote } from "./quote";
+
+describe("unquote", () => {
+  it("strips one level of > markers, with or without a space", () => {
+    expect(unquote("On Tue, Sam wrote:\n> Are you free?\n>\n>Saturday")).toBe("On Tue, Sam wrote:\nAre you free?\n\nSaturday");
+  });
+
+  it("keeps deeper quote levels so nesting stays visible", () => {
+    expect(unquote("> Sounds good\n>> Original question")).toBe("Sounds good\n> Original question");
+  });
+});
 
 describe("splitQuoted", () => {
   it("leaves a body without quotes alone", () => {
