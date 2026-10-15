@@ -16,8 +16,9 @@ const skyline: Address = { name: "Skyline Air", email: "no-reply@skyline-air.exa
 const store: Address = { name: "Example Store", email: "orders@store.example" };
 const grace: Address = { name: "Grace Bell", email: "grace@lettings.example" };
 
+// Account colors stay clear of the orange accent hue, which means "unread" and "selected".
 export const accounts: Account[] = [
-  { id: "a1", name: "Personal", email: you1.email, provider: "gmail", color: "oklch(0.5 0.15 45)" },
+  { id: "a1", name: "Personal", email: you1.email, provider: "gmail", color: "oklch(0.5 0.11 160)" },
   { id: "a2", name: "Work", email: you2.email, provider: "outlook", color: "oklch(0.5 0.12 250)" },
 ];
 
