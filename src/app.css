@@ -93,7 +93,11 @@
   .field {
     @apply flex h-10 shrink-0 items-center gap-3 border-b border-line px-4;
     & > span {
-      @apply w-14 shrink-0 text-ink-muted;
+      @apply w-14 shrink-0 text-ink-muted transition-colors duration-100;
+    }
+    /* Inputs here draw no outline, so the label carries the focus cue. */
+    &:focus-within > span {
+      @apply text-accent;
     }
     & > input,
     & > select {
