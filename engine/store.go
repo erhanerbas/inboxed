@@ -257,3 +257,115 @@ func orEmpty[T any](s []T) []T {
 	}
 	return s
 }
+
+func (s *Store) Accounts() ([]Account, error) {
+	rows, err := s.db.Query(`SELECT id, name, email, provider, color FROM accounts ORDER BY position`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Account{}
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.Email, &a.Provider, &a.Color); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// Mailboxes lists every mailbox with its unread count. Starred counts unread starred threads, since starred is a flag.
+func (s *Store) Mailboxes() ([]Mailbox, error) {
+	rows, err := s.db.Query(`
+		SELECT m.id, m.account_id, m.name, m.role, m.parent_id,
+			CASE WHEN m.role = 'starred'
+				THEN (SELECT COUNT(*) FROM threads t WHERE t.account_id = m.account_id AND t.starred AND t.unread)
+				ELSE (SELECT COUNT(*) FROM thread_mailboxes tm JOIN threads t ON t.id = tm.thread_id
+					WHERE tm.mailbox_id = m.id AND t.unread)
+			END
+		FROM mailboxes m ORDER BY m.position`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Mailbox{}
+	for rows.Next() {
+		var m Mailbox
+		var role, parent sql.NullString
+		if err := rows.Scan(&m.ID, &m.AccountID, &m.Name, &role, &parent, &m.Unread); err != nil {
+			return nil, err
+		}
+		if role.Valid {
+			m.Role = &role.String
+		}
+		if parent.Valid {
+			m.ParentID = &parent.String
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// filter turns a sidebar entry into a WHERE clause over threads t. accountID "all" is the unified view, where key
+// is a role; otherwise key is one of that account's mailbox ids. Starred is a flag, not a folder.
+func (s *Store) filter(accountID, key string) (string, []any, error) {
+	role := key
+	if accountID != "all" {
+		var r sql.NullString
+		err := s.db.QueryRow(`SELECT role FROM mailboxes WHERE id = ? AND account_id = ?`, key, accountID).Scan(&r)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil, ErrNotFound
+		} else if err != nil {
+			return "", nil, err
+		}
+		role = r.String
+	}
+	switch {
+	case role == "starred" && accountID == "all":
+		return `t.starred`, nil, nil
+	case role == "starred":
+		return `t.starred AND t.account_id = ?`, []any{accountID}, nil
+	case accountID == "all":
+		return `t.id IN (SELECT tm.thread_id FROM thread_mailboxes tm JOIN mailboxes m ON m.id = tm.mailbox_id
+			WHERE m.role = ?)`, []any{key}, nil
+	default:
+		return `t.id IN (SELECT thread_id FROM thread_mailboxes WHERE mailbox_id = ?)`, []any{key}, nil
+	}
+}
+
+// Threads lists a sidebar entry newest first, narrowed by a search query, without messages.
+func (s *Store) Threads(accountID, key, query string) ([]Thread, error) {
+	where, args, err := s.filter(accountID, key)
+	if err != nil {
+		return nil, err
+	}
+	if q := ftsQuery(query); q != "" {
+		where += ` AND t.id IN (SELECT thread_id FROM search WHERE search MATCH ?)`
+		args = append(args, q)
+	}
+	rows, err := s.db.Query(`SELECT `+summaryColumns+` FROM threads t WHERE `+where+` ORDER BY t.last_date DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Thread{}
+	for rows.Next() {
+		t, err := scanSummary(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ftsQuery turns what someone typed into an FTS5 query: every word must match as a prefix. Each word is quoted, so
+// FTS syntax in the input (", *, OR, -, NEAR) is searched for literally and can't break or widen the query.
+func ftsQuery(input string) string {
+	var terms []string
+	for _, w := range strings.Fields(input) {
+		terms = append(terms, `"`+strings.ReplaceAll(w, `"`, `""`)+`"*`)
+	}
+	return strings.Join(terms, " ")
+}
