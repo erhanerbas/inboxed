@@ -97,6 +97,7 @@ export const removeAccount = (id: string) =>
   run(async () => {
     await api(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (ui.accountId === id) selectAccount("all");
+    else if (data.thread?.accountId === id) ui.threadId = null; // its mail is gone, so its open thread closes too
     await refreshAll();
   });
 

@@ -175,3 +175,13 @@ describe("ids in URLs", () => {
     expect(engine.calls.some((c) => c.path === "/threads/acc-1%2Fd1%40example.com")).toBe(true);
   });
 });
+
+describe("removing an account", () => {
+  it("closes an open thread of that account even when another view is selected", async () => {
+    await s.openThread("t1"); // t1 belongs to a2
+    s.ui.accountId = "all";
+    await s.removeAccount("a2");
+    expect(s.ui.threadId).toBe(null);
+    expect(s.ui.error).toBe("");
+  });
+});

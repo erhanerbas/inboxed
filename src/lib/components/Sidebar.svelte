@@ -106,7 +106,8 @@
       <h2 class="truncate text-heading" title={account?.name ?? "All Inboxes"}>{account?.name ?? "All Inboxes"}</h2>
       {#if account?.sync?.state === "importing"}
         {@const { done, total } = account.sync}
-        <p class="text-caption text-ink-muted" aria-live="polite">
+        <!-- No live region: a counter that changes every second and a half would talk over everything. -->
+        <p class="text-caption text-ink-muted">
           {total ? `Importing ${done.toLocaleString()} of ${total.toLocaleString()}` : "Looking for mail…"}
         </p>
         <progress class="import mt-1.5" max={total || undefined} value={total ? done : undefined} aria-label="Import progress"
@@ -120,7 +121,7 @@
           Try again
         </button>
       {:else if !account && importing.length}
-        <p class="text-caption text-ink-muted" aria-live="polite">Importing mail…</p>
+        <p class="text-caption text-ink-muted">Importing mail…</p>
       {:else}
         <p class="truncate text-caption text-ink-muted" title={account?.email}>
           {account?.email ?? `${data.accounts.length} ${data.accounts.length === 1 ? "account" : "accounts"}`}
