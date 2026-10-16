@@ -76,10 +76,11 @@
   </main>
 </div>
 
-{#if ui.composing}
-  <!-- A new message re-mounts the panel, so focus and its state start fresh. -->
-  {#key ui.composeKey}<Compose />{/key}
-{/if}
+<!-- A new message re-mounts the panel, so focus and its state start fresh. The {#if} sits inside the {#key} so it's
+     the panel's own block: opening and closing animate (local transitions only play for their own block). -->
+{#key ui.composeKey}
+  {#if ui.composing}<Compose />{/if}
+{/key}
 {#if ui.addingAccount}
   <AddAccount />
 {/if}

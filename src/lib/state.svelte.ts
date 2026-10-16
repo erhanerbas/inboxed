@@ -236,13 +236,14 @@ let pristine = ""; // the draft as the panel opened, so closing an untouched one
 
 /** Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was. */
 export async function compose(draft: Partial<Draft> = {}) {
-  if (ui.composing && (await closeCompose())) return;
+  const replacing = ui.composing;
+  if (replacing && (await closeCompose())) return;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
   pristine = JSON.stringify(ui.draft);
   ui.forwarding = [];
   ui.composeError = "";
-  ui.composeKey++;
+  if (replacing) ui.composeKey++; // a fresh panel for the new message; a first open keeps its opening animation
   ui.composing = true;
 }
 

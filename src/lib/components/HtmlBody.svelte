@@ -62,8 +62,8 @@
 </script>
 
 {#if hasRemoteContent(html) && !remote}
-  <p class="mb-3 flex max-w-[68ch] items-center justify-between gap-3 rounded-lg bg-panel py-1.5 pr-1.5 pl-3 text-caption text-ink-muted">
-    Remote images are blocked, so the sender can't tell you opened this.
+  <p class="mb-3 flex items-center justify-between gap-3 rounded-lg bg-panel py-1.5 pr-1.5 pl-3 text-caption text-ink-muted">
+    Remote images are blocked, so the sender can't see you opened this.
     <button class="btn-secondary h-7 shrink-0 px-3 text-caption" onclick={() => (remote = true)}>Load images</button>
   </p>
 {/if}
