@@ -7,7 +7,7 @@ import (
 )
 
 func TestAuth(t *testing.T) {
-	h := withAuth("secret", routes())
+	h := withAuth("secret", routes(newTestStore(t)))
 	for _, tc := range []struct {
 		method, auth string
 		want         int

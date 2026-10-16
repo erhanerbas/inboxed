@@ -4,9 +4,12 @@
 // {"port":N,"token":"..."}, to stdout. Every request must include
 // "Authorization: Bearer <token>". It exits when stdin closes, which happens
 // when the Tauri app exits.
+//
+// Data lives in INBOXED_DATA_DIR/inboxed.db; INBOXED_SEED=1 fills an empty database with demo mail.
 package main
 
 import (
+	"cmp"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
@@ -15,35 +18,53 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"time"
 )
 
 func main() {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	dir := os.Getenv("INBOXED_DATA_DIR")
+	if dir == "" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			log.Fatal(err)
+		}
+		dir = filepath.Join(base, "dev.inboxed.app")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(dir, "inboxed.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	token := rand.Text()
+	if os.Getenv("INBOXED_SEED") == "1" {
+		if err := store.Seed(time.Now()); err != nil {
+			log.Fatal(err)
+		}
+	}
 
-	go func() {
-		io.Copy(io.Discard, os.Stdin)
-		os.Exit(0)
-	}()
+	// INBOXED_PORT and INBOXED_TOKEN pin the address for browser development (npm run dev:engine). Tauri leaves them unset.
+	ln, err := net.Listen("tcp", "127.0.0.1:"+cmp.Or(os.Getenv("INBOXED_PORT"), "0"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	token := cmp.Or(os.Getenv("INBOXED_TOKEN"), rand.Text())
+
+	// Tauri talks to the engine over a pipe and closes it on exit; a terminal or /dev/null (npm run dev:engine) never does.
+	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeNamedPipe != 0 {
+		go func() {
+			io.Copy(io.Discard, os.Stdin)
+			os.Exit(0)
+		}()
+	}
 
 	json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"port":  ln.Addr().(*net.TCPAddr).Port,
 		"token": token,
 	})
 
-	log.Fatal(http.Serve(ln, withAuth(token, routes())))
-}
-
-func routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-	return mux
+	log.Fatal(http.Serve(ln, withAuth(token, routes(store))))
 }
 
 // withAuth adds CORS headers so the webview origin can call the engine, and
