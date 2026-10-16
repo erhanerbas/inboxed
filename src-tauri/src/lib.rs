@@ -57,7 +57,8 @@ pub fn run() {
                 .env("INBOXED_SEED", if debug { "1" } else { "" }) // demo mail until Phase 3 adds real accounts
                 .env("INBOXED_ORIGINS", if debug { "http://localhost:1420" } else { "" }) // the Vite dev server
                 .env("INBOXED_PORT", "")
-                .env("INBOXED_TOKEN", "");
+                .env("INBOXED_TOKEN", "")
+                .env("INBOXED_FAKE_KEYCHAIN", "");
             let (mut events, child) = engine.spawn()?;
             let (tx, rx) = watch::channel(None);
             app.manage(EngineState { ready: rx, _child: Mutex::new(child) });

@@ -7,7 +7,7 @@ import (
 )
 
 func TestAuth(t *testing.T) {
-	h := withAuth("secret", nil, routes(newTestStore(t)))
+	h := withAuth("secret", nil, func() http.Handler { h, _, _ := testRoutes(t); return h }())
 	for _, tc := range []struct {
 		method, auth string
 		want         int
@@ -32,7 +32,7 @@ func TestAuth(t *testing.T) {
 // Only the app's own webview origins may call the engine from a browser context; a page on the open web can't,
 // even if it knows the token.
 func TestCORSAllowsOnlyTheApp(t *testing.T) {
-	h := withAuth("secret", []string{"http://localhost:1420"}, routes(newTestStore(t)))
+	h := withAuth("secret", []string{"http://localhost:1420"}, func() http.Handler { h, _, _ := testRoutes(t); return h }())
 	for _, tc := range []struct {
 		origin  string
 		allowed bool

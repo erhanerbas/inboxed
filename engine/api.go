@@ -8,14 +8,37 @@ import (
 	"net/http"
 )
 
-func routes(s *Store) http.Handler {
+func routes(s *Store, im *Importer) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]string{"status": "ok"}, nil)
 	})
 	mux.HandleFunc("GET /accounts", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Accounts()
+		for i := range v {
+			v[i].Sync = im.Progress(v[i].ID)
+		}
 		respond(w, v, err)
+	})
+	mux.HandleFunc("POST /accounts", func(w http.ResponseWriter, r *http.Request) {
+		var body AccountSettings
+		if decode(w, r, &body) {
+			v, err := im.AddAccount(body)
+			respond(w, v, err)
+		}
+	})
+	mux.HandleFunc("DELETE /accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, im.RemoveAccount(r.PathValue("id")))
+	})
+	mux.HandleFunc("POST /accounts/{id}/import", func(w http.ResponseWriter, r *http.Request) {
+		set, err := s.AccountSettings(r.PathValue("id"))
+		if err == nil && set.IMAP.Host == "" {
+			err = problem("This account has no mail server to import from.")
+		}
+		if err == nil {
+			im.Start(r.PathValue("id"))
+		}
+		respond(w, nil, err)
 	})
 	mux.HandleFunc("GET /mailboxes", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Mailboxes()

@@ -9,7 +9,7 @@ import (
 )
 
 func TestAPI(t *testing.T) {
-	srv := httptest.NewServer(routes(newTestStore(t)))
+	srv := httptest.NewServer(func() http.Handler { h, _, _ := testRoutes(t); return h }())
 	defer srv.Close()
 	call := func(method, path, body string) *http.Response {
 		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
@@ -60,5 +60,57 @@ func TestAPI(t *testing.T) {
 		if m.Unread != 0 && m.Role != nil && *m.Role == "inbox" {
 			t.Errorf("%s still has %d unread after read-all", m.ID, m.Unread)
 		}
+	}
+}
+
+// testRoutes is the API over a seeded store, as main wires it.
+func testRoutes(t *testing.T) (http.Handler, *Store, *Importer) {
+	s := newTestStore(t)
+	im := NewImporter(s)
+	return routes(s, im), s, im
+}
+
+func TestAccountsAPI(t *testing.T) {
+	imapSrv, smtpSrv, _ := testServers(t)
+	h, _, im := testRoutes(t)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	call := func(method, path, body string) *http.Response {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		return res
+	}
+
+	res := call("POST", "/accounts", `{"email":"you@example.com","password":"nope"}`)
+	var refused map[string]string
+	json.NewDecoder(res.Body).Decode(&refused)
+	if res.StatusCode != 400 || !strings.HasPrefix(refused["error"], "Fill in") {
+		t.Errorf("incomplete form: %d %v", res.StatusCode, refused)
+	}
+
+	set, _ := json.Marshal(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: smtpSrv})
+	var a Account
+	json.NewDecoder(call("POST", "/accounts", string(set)).Body).Decode(&a)
+	if a.Provider != "imap" || a.ID == "" {
+		t.Fatalf("added %+v", a)
+	}
+	waitImport(t, im, a.ID)
+	var accounts []Account
+	json.NewDecoder(call("GET", "/accounts", "").Body).Decode(&accounts)
+	if last := accounts[len(accounts)-1]; last.Sync == nil || last.Sync.State != "done" || last.Sync.Done != 4 {
+		t.Errorf("GET /accounts sync: %+v", last.Sync)
+	}
+	if res := call("POST", "/accounts/a1/import", ""); res.StatusCode != 400 {
+		t.Errorf("importing a demo account: %d", res.StatusCode)
+	}
+	if res := call("DELETE", "/accounts/"+a.ID, ""); res.StatusCode != 204 {
+		t.Errorf("DELETE: %d", res.StatusCode)
+	}
+	if res := call("DELETE", "/accounts/"+a.ID, ""); res.StatusCode != 404 {
+		t.Errorf("DELETE twice: %d", res.StatusCode)
 	}
 }

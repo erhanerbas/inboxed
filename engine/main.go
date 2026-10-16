@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/zalando/go-keyring"
 )
 
 func main() {
@@ -43,6 +45,19 @@ func main() {
 		if err := store.Seed(time.Now()); err != nil {
 			log.Fatal(err)
 		}
+	}
+	// INBOXED_FAKE_KEYCHAIN=1 keeps passwords in memory, for headless checks; Rust clears it for the app.
+	if os.Getenv("INBOXED_FAKE_KEYCHAIN") == "1" {
+		keyring.MockInit()
+	}
+	importer := NewImporter(store)
+	// New mail arrives at least once per launch until Phase 4 keeps accounts in sync.
+	ids, err := store.IMAPAccounts()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, id := range ids {
+		importer.Start(id)
 	}
 
 	// INBOXED_PORT and INBOXED_TOKEN pin the address for browser development (npm run dev:engine). Rust clears both for
@@ -67,7 +82,7 @@ func main() {
 		"token": token,
 	})
 
-	log.Fatal(http.Serve(ln, withAuth(token, origins, routes(store))))
+	log.Fatal(http.Serve(ln, withAuth(token, origins, routes(store, importer))))
 }
 
 // withAuth lets only the app's own webview origins call the engine from a page (a site on the open web can't, even
