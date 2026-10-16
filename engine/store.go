@@ -101,6 +101,8 @@ var migrations = []string{
 		attempts INTEGER NOT NULL DEFAULT 0
 	);
 	CREATE INDEX pending_changes_thread ON pending_changes(thread_id);`,
+	// The folder's HIGHESTMODSEQ when last synced (CONDSTORE servers): flag changes since then are all that's fetched.
+	`ALTER TABLE mailboxes ADD COLUMN modseq INTEGER NOT NULL DEFAULT 0;`,
 }
 
 type Store struct{ db *sql.DB }
@@ -465,7 +467,7 @@ func (s *Store) Move(id, to string) error {
 		return err
 	}
 	var target string
-	err = s.db.QueryRow(`SELECT id FROM mailboxes WHERE account_id = ? AND role = ?`, account, to).Scan(&target)
+	err = s.db.QueryRow(`SELECT id FROM mailboxes WHERE account_id = ? AND role = ? ORDER BY position LIMIT 1`, account, to).Scan(&target)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: account %s has no %s mailbox", ErrInvalid, account, to)
 	} else if err != nil {

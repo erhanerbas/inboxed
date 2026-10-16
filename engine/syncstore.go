@@ -71,8 +71,8 @@ func (s *Store) SetLocationFlags(mailboxID string, flags map[uint32][2]bool) err
 	return tx.Commit()
 }
 
-// RemoveLocations forgets messages a folder no longer has (deleted, or moved away on the server). Messages left in
-// no folder are deleted, and so are threads left with no messages.
+// RemoveLocations forgets messages a folder no longer has (deleted, or moved away on the server) and re-derives their
+// threads. The messages themselves stay until Prune: one moved to another folder only needs its new location.
 func (s *Store) RemoveLocations(mailboxID string, uids []uint32) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -81,22 +81,77 @@ func (s *Store) RemoveLocations(mailboxID string, uids []uint32) error {
 	defer tx.Rollback()
 	threads := map[string]bool{}
 	for _, uid := range uids {
-		var msgID string
-		err := tx.QueryRow(`DELETE FROM message_locations WHERE mailbox_id = ? AND uid = ? RETURNING message_id`, mailboxID, uid).Scan(&msgID)
+		var threadID string
+		err := tx.QueryRow(`DELETE FROM message_locations WHERE mailbox_id = ? AND uid = ?
+			RETURNING (SELECT thread_id FROM messages WHERE id = message_id)`, mailboxID, uid).Scan(&threadID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		} else if err != nil {
 			return err
 		}
+		threads[threadID] = true
+	}
+	for id := range threads {
+		if err := syncThread(tx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// MoveLocations records that the server moved messages (src UIDs → dst UIDs, in order, as COPYUID reports them).
+func (s *Store) MoveLocations(src string, srcUIDs []uint32, dst string, dstUIDs []uint32) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	threads := map[string]bool{}
+	for i, uid := range srcUIDs {
 		var threadID string
-		if err := tx.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&threadID); err != nil {
+		err := tx.QueryRow(`UPDATE OR REPLACE message_locations SET mailbox_id = ?, uid = ? WHERE mailbox_id = ? AND uid = ?
+			RETURNING (SELECT thread_id FROM messages WHERE id = message_id)`, dst, dstUIDs[i], src, uid).Scan(&threadID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		} else if err != nil {
 			return err
 		}
 		threads[threadID] = true
-		if _, err := tx.Exec(`DELETE FROM messages WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM message_locations WHERE message_id = ?1)`,
-			msgID); err != nil {
+	}
+	for id := range threads {
+		if err := syncThread(tx, id); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// Prune deletes an account's messages that are in no folder on the server any more, and threads left with no messages.
+// The syncer runs it once every folder is synced, so mail that only moved has its new location by then.
+func (s *Store) Prune(accountID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`DELETE FROM messages WHERE id IN (SELECT m.id FROM messages m JOIN threads t ON t.id = m.thread_id
+		WHERE t.account_id = ? AND NOT EXISTS (SELECT 1 FROM message_locations WHERE message_id = m.id))
+		RETURNING thread_id`, accountID)
+	if err != nil {
+		return err
+	}
+	threads := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		threads[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	for id := range threads {
 		if err := syncThread(tx, id); err != nil {
@@ -142,7 +197,8 @@ func (s *Store) ServerMailboxes(accountID string) (map[string]string, error) {
 	return out, rows.Err()
 }
 
-// DeleteMailbox drops a folder that no longer exists on the server, forgetting its messages first.
+// DeleteMailbox drops a folder that no longer exists on the server, forgetting its locations first (Prune then
+// deletes the messages that were only there).
 func (s *Store) DeleteMailbox(id string) error {
 	known, err := s.KnownUIDs(id)
 	if err != nil {
@@ -155,13 +211,13 @@ func (s *Store) DeleteMailbox(id string) error {
 	return err
 }
 
-func (s *Store) MailboxStatus(id string) string {
-	var status string
-	s.db.QueryRow(`SELECT status FROM mailboxes WHERE id = ?`, id).Scan(&status)
-	return status
+// MailboxStatus is a folder's STATUS when it was last synced, and its HIGHESTMODSEQ (CONDSTORE servers; else 0).
+func (s *Store) MailboxStatus(id string) (status string, modseq uint64) {
+	s.db.QueryRow(`SELECT status, modseq FROM mailboxes WHERE id = ?`, id).Scan(&status, &modseq)
+	return status, modseq
 }
 
-func (s *Store) SetMailboxStatus(id, status string) error {
-	_, err := s.db.Exec(`UPDATE mailboxes SET status = ? WHERE id = ?`, status, id)
+func (s *Store) SetMailboxStatus(id, status string, modseq uint64) error {
+	_, err := s.db.Exec(`UPDATE mailboxes SET status = ?, modseq = ? WHERE id = ?`, status, modseq, id)
 	return err
 }

@@ -54,7 +54,8 @@ func (s *Store) PendingChanges(accountID string) ([]Change, error) {
 
 // ChangeTargets finds where on the server a change applies. Mark read touches every message, mark unread and star
 // only the newest (as Mail and Gmail do), unstar all. Moves: archive takes inbox copies to the archive folder, trash
-// takes every other copy to the trash, restore brings archived or trashed copies back to the inbox.
+// takes every other copy except Sent and Drafts to the trash, restore brings archived or trashed copies (not my own)
+// back to the inbox.
 func (s *Store) ChangeTargets(c Change) ([]Target, error) {
 	where, dest := "", ""
 	switch {
@@ -64,9 +65,12 @@ func (s *Store) ChangeTargets(c Change) ([]Target, error) {
 	case c.Kind == "move" && c.Value == "archive":
 		where, dest = `AND mb.role = 'inbox'`, "archive"
 	case c.Kind == "move" && c.Value == "trash":
-		where, dest = `AND COALESCE(mb.role, '') != 'trash'`, "trash"
+		// Copies in Sent and Drafts stay: deleting a conversation doesn't delete what I wrote from Sent.
+		where, dest = `AND COALESCE(mb.role, '') NOT IN ('trash', 'sent', 'drafts')`, "trash"
 	case c.Kind == "move" && c.Value == "inbox":
-		where, dest = `AND mb.role IN ('archive', 'trash')`, "inbox"
+		// My own messages aren't put in the inbox (on Gmail, All Mail holds them too).
+		where, dest = `AND mb.role IN ('archive', 'trash')
+			AND lower(json_extract(m.sender, '$.email')) != (SELECT lower(a.email) FROM accounts a JOIN threads t ON t.account_id = a.id WHERE t.id = ?1)`, "inbox"
 	default:
 		return nil, fmt.Errorf("%w: unknown change %s=%s", ErrInvalid, c.Kind, c.Value)
 	}
@@ -102,9 +106,22 @@ func (s *Store) ChangeTargets(c Change) ([]Target, error) {
 	return out, rows.Err()
 }
 
+// FinishChange removes a change the server now has, and lets its thread follow the server again (unless more of
+// its changes are waiting).
 func (s *Store) FinishChange(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM pending_changes WHERE id = ?`, id)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var threadID string
+	if err := tx.QueryRow(`DELETE FROM pending_changes WHERE id = ? RETURNING thread_id`, id).Scan(&threadID); err != nil {
+		return err
+	}
+	if err := syncThread(tx, threadID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // FailChange counts a refused attempt. After maxAttempts the change is dropped and its thread re-derived, so it shows

@@ -68,15 +68,23 @@ async function refreshAll() {
   await reload();
 }
 
-let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let refreshing = false;
+let missed = false;
 
-// A burst of engine events (a big import reports often) becomes at most one reload per 300 ms.
-function scheduleRefresh() {
-  if (refreshTimer) return;
-  refreshTimer = setTimeout(() => {
-    refreshTimer = undefined;
-    run(refreshAll);
-  }, 300);
+// The first event reloads at once; a burst after it (a big import reports often) becomes at most one more reload a
+// second, and reloads never overlap.
+async function scheduleRefresh() {
+  if (refreshing) {
+    missed = true;
+    return;
+  }
+  refreshing = true;
+  do {
+    missed = false;
+    await run(refreshAll);
+    await new Promise((r) => setTimeout(r, 1000));
+  } while (missed);
+  refreshing = false;
 }
 
 let following = false;
@@ -88,14 +96,14 @@ async function followChanges() {
   following = true;
   let delay = 1000;
   for (;;) {
+    const opened = Date.now();
     try {
-      await follow(() => {
-        delay = 1000;
-        scheduleRefresh();
-      });
+      await follow(scheduleRefresh);
     } catch (err) {
       console.error(err);
     }
+    if (Date.now() - opened > 30_000) delay = 1000; // it was up for a while: this is a new outage
+    await new Promise((r) => setTimeout(r, delay));
     await new Promise((r) => setTimeout(r, delay));
     delay = Math.min(delay * 2, 30_000);
     scheduleRefresh();

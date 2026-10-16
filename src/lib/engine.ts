@@ -43,7 +43,7 @@ export const send = (path: string, method: string, body: unknown) =>
 
 /** Splits a Server-Sent Events buffer into the names of its complete events and the unfinished rest. */
 export function parseEvents(buffer: string): { names: string[]; rest: string } {
-  const blocks = buffer.split("\n\n");
+  const blocks = buffer.replace(/\r\n?/g, "\n").split("\n\n");
   const rest = blocks.pop() ?? "";
   const names = blocks.flatMap((block) =>
     block

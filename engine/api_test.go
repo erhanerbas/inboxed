@@ -67,7 +67,7 @@ func TestAPI(t *testing.T) {
 // testRoutes is the API over a seeded store, as main wires it.
 func testRoutes(t *testing.T) (http.Handler, *Store, *Syncer) {
 	s := newTestStore(t)
-	im := NewSyncer(s, func() {})
+	im := testSyncer(t, s)
 	return routes(s, im, NewEvents()), s, im
 }
 

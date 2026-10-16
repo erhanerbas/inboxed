@@ -192,11 +192,13 @@ describe("removing an account", () => {
 });
 
 describe("live updates", () => {
-  it("a burst of engine events becomes one reload", async () => {
+  it("an event reloads at once, and a burst after it becomes one more reload a second later", async () => {
     engine.emit?.();
     engine.emit?.();
     engine.emit?.();
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 300));
     expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(1);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(2);
   });
 });

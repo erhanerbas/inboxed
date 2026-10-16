@@ -8,6 +8,10 @@ describe("parseEvents", () => {
     expect(rest).toBe("event: cha");
   });
 
+  it("accepts CRLF line endings", () => {
+    expect(parseEvents("event: change\r\ndata: {}\r\n\r\n").names).toEqual(["change"]);
+  });
+
   it("ignores comments and keeps the order", () => {
     expect(parseEvents(": ping\n\nevent: change\ndata: {}\n\nevent: change\ndata: {}\n\n").names).toEqual(["change", "change"]);
   });
