@@ -86,7 +86,7 @@ func testServers(t *testing.T) (imapSrv, smtpSrv Server, user *imapmemserver.Use
 	keyring.MockInit()
 	mem := imapmemserver.New()
 	user = imapmemserver.NewUser("you@example.com", "secret")
-	for _, name := range []string{"INBOX", "Sent", "Archive", "Trash", "Work", "Work/Projects"} {
+	for _, name := range []string{"INBOX", "Sent", "Drafts", "Archive", "Trash", "Work", "Work/Projects"} {
 		user.Create(name, nil)
 	}
 	appendRaw(t, user, "INBOX", dinner)

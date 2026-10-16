@@ -55,6 +55,26 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 		}
 		respond(w, nil, err)
 	})
+	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
+		var d Draft
+		if decode(w, r, &d) {
+			respond(w, nil, sy.Send(d))
+		}
+	})
+	mux.HandleFunc("PUT /drafts", func(w http.ResponseWriter, r *http.Request) {
+		var d Draft
+		if decode(w, r, &d) {
+			id, err := sy.SaveDraft(d)
+			if err != nil {
+				respond(w, nil, err)
+				return
+			}
+			respond(w, map[string]string{"id": id}, nil)
+		}
+	})
+	mux.HandleFunc("DELETE /drafts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, sy.DeleteDraft(r.PathValue("id")))
+	})
 	mux.HandleFunc("GET /mailboxes", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Mailboxes()
 		respond(w, v, err)

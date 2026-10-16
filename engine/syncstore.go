@@ -221,3 +221,36 @@ func (s *Store) SetMailboxStatus(id, status string, modseq uint64) error {
 	_, err := s.db.Exec(`UPDATE mailboxes SET status = ?, modseq = ? WHERE id = ?`, status, modseq, id)
 	return err
 }
+
+// Copy is where a message lives in a folder with that role, or ErrNotFound.
+func (s *Store) Copy(messageID, role string) (mailboxID, path string, uid uint32, err error) {
+	err = s.db.QueryRow(`SELECT ml.mailbox_id, mb.path, ml.uid FROM message_locations ml JOIN mailboxes mb ON mb.id = ml.mailbox_id
+		WHERE ml.message_id = ? AND mb.role = ? AND mb.path IS NOT NULL LIMIT 1`, messageID, role).Scan(&mailboxID, &path, &uid)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return
+}
+
+// DeleteMessage deletes one message here (a discarded or replaced draft); its thread follows, or goes when empty.
+func (s *Store) DeleteMessage(id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var threadID string
+	err = tx.QueryRow(`DELETE FROM messages WHERE id = ? RETURNING thread_id`, id).Scan(&threadID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := syncThread(tx, threadID); err != nil {
+		return err
+	}
+	if err := refreshThread(tx, threadID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return tx.Commit()
+}

@@ -111,12 +111,23 @@ func loginIMAP(s Server, username, password string, handler *imapclient.Unilater
 
 // checkSMTP signs in to the outgoing server, so a typo shows up now rather than at the first send.
 func checkSMTP(s Server, username, password string) error {
-	if err := checkSecurity(s); err != nil {
+	c, err := dialSMTP(s, username, password)
+	if err != nil {
 		return err
+	}
+	c.Quit()
+	return nil
+}
+
+// dialSMTP connects and signs in. The connection's deadline stays set, so a server that stops answering can't hang a
+// send either.
+func dialSMTP(s Server, username, password string) (*smtp.Client, error) {
+	if err := checkSecurity(s); err != nil {
+		return nil, err
 	}
 	conn, err := (&net.Dialer{Timeout: dialTimeout}).Dial("tcp", address(s))
 	if err != nil {
-		return cantConnect(s, err)
+		return nil, cantConnect(s, err)
 	}
 	conn.SetDeadline(time.Now().Add(2 * dialTimeout)) // a server that accepts but never answers can't hang the form
 	var c *smtp.Client
@@ -125,27 +136,27 @@ func checkSMTP(s Server, username, password string) error {
 		tc := tls.Client(conn, &tls.Config{ServerName: s.Host})
 		if err := tc.Handshake(); err != nil {
 			conn.Close()
-			return cantConnect(s, err)
+			return nil, cantConnect(s, err)
 		}
 		c = smtp.NewClient(tc)
 	case "starttls":
 		if c, err = smtp.NewClientStartTLS(conn, &tls.Config{ServerName: s.Host}); err != nil {
 			conn.Close()
-			return cantConnect(s, err)
+			return nil, cantConnect(s, err)
 		}
 	default:
 		c = smtp.NewClient(conn)
 	}
-	defer c.Close()
 	// PLAIN where offered; many Exchange servers only offer LOGIN.
 	auth := sasl.NewPlainClient("", username, password)
 	if !c.SupportsAuth(sasl.Plain) && c.SupportsAuth(sasl.Login) {
 		auth = sasl.NewLoginClient(username, password)
 	}
 	if err := c.Auth(auth); err != nil {
-		return refused(s, err)
+		c.Close()
+		return nil, refused(s, err)
 	}
-	return nil
+	return c, nil
 }
 
 // sizedBatches splits UIDs into fetches of at most maxCount messages and roughly maxBytes, so a run of large
