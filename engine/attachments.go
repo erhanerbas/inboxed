@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Opening an attachment saves it to Downloads, marks it as downloaded from the internet and shows it in the file
@@ -67,15 +68,30 @@ func (s *Store) attachments(messageID string) ([]Attachment, error) {
 	return list, json.Unmarshal([]byte(raw), &list)
 }
 
-// safeName is a sender-chosen file name made harmless: no directories, no control characters, not hidden.
+// safeName is a sender-chosen file name made harmless: no directories, no control or invisible formatting characters
+// (a right-to-left override makes "invoice\u202efdp.command" look like a PDF), not hidden, and short enough for any
+// file system (cut on a character boundary, keeping the extension).
 func safeName(name string) string {
 	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r < 32 || r == 127 {
+		if r == '/' || r == '\\' || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
 	}, name)
-	return cmp.Or(strings.TrimLeft(strings.TrimSpace(name), ". "), "attachment")
+	name = cmp.Or(strings.TrimLeft(strings.TrimSpace(name), ". "), "attachment")
+	const limit = 200 // bytes; leaves room for " (99)"
+	if len(name) > limit {
+		ext := filepath.Ext(name)
+		if len(ext) > 20 {
+			ext = ""
+		}
+		base := []rune(strings.TrimSuffix(name, filepath.Ext(name)))
+		for len(string(base))+len(ext) > limit {
+			base = base[:len(base)-1]
+		}
+		name = string(base) + ext
+	}
+	return name
 }
 
 // SaveAttachment writes one attachment into dir under its own (cleaned) name, adding " (2)", " (3)" … rather than

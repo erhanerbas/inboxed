@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // saveFile keeps attachment content under its SHA-256, so a message's copies (and the same file sent twice) share it.
@@ -42,8 +43,13 @@ func (s *Store) File(hash string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(s.files, hash))
 }
 
-// CleanFiles removes attachment files no message refers to any more. main runs it at startup.
+// cleanGrace: files this recent may belong to a message still being stored (tests shorten it).
+var cleanGrace = time.Minute
+
+// CleanFiles removes attachment files no message refers to any more. main runs it in the background at startup;
+// files written since it began are left alone (their message may not be committed yet).
 func (s *Store) CleanFiles() error {
+	started := time.Now()
 	entries, err := os.ReadDir(s.files)
 	if os.IsNotExist(err) {
 		return nil
@@ -72,6 +78,9 @@ func (s *Store) CleanFiles() error {
 		return err
 	}
 	for _, e := range entries {
+		if info, err := e.Info(); err != nil || info.ModTime().After(started.Add(-cleanGrace)) {
+			continue
+		}
 		if !used[e.Name()] {
 			os.Remove(filepath.Join(s.files, e.Name()))
 		}

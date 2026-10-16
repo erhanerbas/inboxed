@@ -112,7 +112,7 @@
               {#if open}
                 <div class="selectable mt-4 text-read wrap-anywhere">
                   {#if m.html}
-                    <HtmlBody html={m.html} />
+                    <HtmlBody html={m.html} accountId={thread.accountId} />
                   {:else}
                   {#if body.text}
                     <p class="max-w-[68ch] whitespace-pre-wrap">{body.text}</p>

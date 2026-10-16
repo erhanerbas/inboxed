@@ -255,19 +255,39 @@ func joinThread(tx *sql.Tx, in Incoming, msgID string) (string, error) {
 		for i, r := range in.Refs {
 			refs[i] = in.AccountID + "/" + r
 		}
-		if err := collect(`SELECT thread_id FROM messages WHERE id IN (?`+strings.Repeat(", ?", len(refs)-1)+`)`, refs...); err != nil {
+		in := `(?` + strings.Repeat(", ?", len(refs)-1) + `)`
+		if err := collect(`SELECT thread_id FROM messages WHERE id IN `+in, refs...); err != nil {
+			return "", err
+		}
+		// Siblings: stored messages answering the same (perhaps never imported) original.
+		if err := collect(`SELECT m.thread_id FROM message_refs r JOIN messages m ON m.id = r.message_id WHERE r.ref IN `+in, refs...); err != nil {
 			return "", err
 		}
 	}
 	if err := collect(`SELECT m.thread_id FROM message_refs r JOIN messages m ON m.id = r.message_id WHERE r.ref = ?`, msgID); err != nil {
 		return "", err
 	}
-	if len(linked) == 0 {
+	// A conversation with a change still on its way to the server isn't merged or joined: the change was made on
+	// the mail it had (a trash must not take other mail along). The links still count once it's sent.
+	var free []string
+	for _, id := range linked {
+		var pending bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pending_changes WHERE thread_id = ?)`, id).Scan(&pending); err != nil {
+			return "", err
+		}
+		if !pending {
+			free = append(free, id)
+		}
+	}
+	if len(free) == 0 {
+		if slices.Contains(linked, root) {
+			return root, nil // its own root conversation is busy; joining it is still right
+		}
 		_, err := tx.Exec(`INSERT INTO threads (id, account_id, subject, snippet, participants, last_date, has_attachments)
 			VALUES (?, ?, ?, '', '[]', '', 0)`, root, in.AccountID, in.Subject)
 		return root, err
 	}
-	return linked[0], mergeThreads(tx, linked[0], linked[1:])
+	return free[0], mergeThreads(tx, free[0], free[1:])
 }
 
 // mergeThreads moves threads' messages, folders and queued changes into one, then deletes them (and, by trigger,

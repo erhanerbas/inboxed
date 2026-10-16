@@ -58,22 +58,15 @@ func TestThreadsJoinByLinks(t *testing.T) {
 		t.Errorf("trimmed References: %q vs %q", threadOf(t, s, "l@x"), threadOf(t, s, "r@x"))
 	}
 
-	// Two separate threads, then a message that links them: they merge, with folders and queued changes.
+	// Two separate threads, then a message that links them: they merge, with their folders.
 	add(t, s, inbox, 4, note("a@x", ""))
 	add(t, s, inbox, 5, note("b@x", ""))
-	yes := true
-	s.SetFlags("acc/b@x", nil, &yes)
 	add(t, s, inbox, 6, note("m@x", "References: <a@x> <b@x>"))
 	if threadOf(t, s, "b@x") != "acc/a@x" || threadOf(t, s, "m@x") != "acc/a@x" {
 		t.Errorf("merge: b in %q, m in %q", threadOf(t, s, "b@x"), threadOf(t, s, "m@x"))
 	}
 	if _, err := s.Thread("acc/b@x"); err == nil {
 		t.Error("the merged-away thread is still here")
-	}
-	var pending string
-	s.db.QueryRow(`SELECT thread_id FROM pending_changes`).Scan(&pending)
-	if pending != "acc/a@x" {
-		t.Errorf("queued change follows the merge: %q", pending)
 	}
 	var orphans int
 	s.db.QueryRow(`SELECT COUNT(*) FROM search WHERE rowid NOT IN (SELECT doc FROM threads)`).Scan(&orphans)
@@ -89,6 +82,9 @@ func pdfMessage(id string) []byte {
 }
 
 func TestAttachmentFiles(t *testing.T) {
+	old := cleanGrace
+	cleanGrace = 0
+	t.Cleanup(func() { cleanGrace = old })
 	s, inbox := trailStore(t)
 	add(t, s, inbox, 1, pdfMessage("one@x"))
 	add(t, s, inbox, 2, pdfMessage("two@x"))
@@ -181,5 +177,46 @@ func TestMigrationForgetsImportedMail(t *testing.T) {
 	}
 	if n := count(`SELECT COUNT(*) FROM threads`); n == 0 {
 		t.Error("demo mail was forgotten too")
+	}
+}
+
+// A queued change belongs to the conversation it was made on: a merge mustn't carry a trash onto other mail.
+func TestMergeSkipsThreadsWithPendingChanges(t *testing.T) {
+	s, inbox := trailStore(t)
+	trash, _ := s.UpsertMailbox("acc", "Trash", "Trash", ptr("trash"), "", 1)
+	_ = trash
+	add(t, s, inbox, 1, note("a@x", ""))
+	add(t, s, inbox, 2, note("b@x", ""))
+	s.Move("acc/b@x", "trash") // queued, not sent yet
+	add(t, s, inbox, 3, note("m@x", "References: <a@x> <b@x>"))
+	if threadOf(t, s, "b@x") != "acc/b@x" {
+		t.Errorf("a thread with a queued change was merged into %q", threadOf(t, s, "b@x"))
+	}
+	changes, _ := s.PendingChanges("acc")
+	targets, _ := s.ChangeTargets(changes[0])
+	if len(targets) != 1 || len(targets[0].UIDs) != 1 || targets[0].UIDs[0] != 2 {
+		t.Errorf("the trash now targets %+v", targets)
+	}
+}
+
+// Two replies to an original that was never imported stay together, whatever their own roots.
+func TestRepliesToAMissingOriginalStayTogether(t *testing.T) {
+	s, inbox := trailStore(t)
+	add(t, s, inbox, 1, note("r1@x", "References: <x@x> <o@x>"))
+	add(t, s, inbox, 2, note("r2@x", "References: <o@x>"))
+	if threadOf(t, s, "r1@x") != threadOf(t, s, "r2@x") {
+		t.Errorf("siblings split: %q vs %q", threadOf(t, s, "r1@x"), threadOf(t, s, "r2@x"))
+	}
+}
+
+func TestInlineImagesWithOverlappingCIDs(t *testing.T) {
+	s, inbox := trailStore(t)
+	add(t, s, inbox, 1, crlf("From: a@x\nMessage-ID: <two@x>\nMIME-Version: 1.0\nContent-Type: multipart/related; boundary=r\n\n"+
+		"--r\nContent-Type: text/html\n\n<img src=\"cid:a@x\"><img src=\"cid:a@x2\">\n"+
+		"--r\nContent-Type: image/png\nContent-ID: <a@x>\nContent-Transfer-Encoding: base64\n\nb25l\n"+
+		"--r\nContent-Type: image/gif\nContent-ID: <a@x2>\nContent-Transfer-Encoding: base64\n\ndHdv\n--r--\n"))
+	th, _ := s.Thread("acc/two@x")
+	if html := th.Messages[0].HTML; !strings.Contains(html, `"data:image/png;base64,b25l"`) || !strings.Contains(html, `"data:image/gif;base64,dHdv"`) {
+		t.Errorf("html %q", html)
 	}
 }

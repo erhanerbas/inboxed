@@ -46,10 +46,12 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	// Attachment files whose mail is gone (deleted, pruned, re-imported) are removed while nothing is syncing yet.
-	if err := store.CleanFiles(); err != nil {
-		log.Printf("cleaning attachment files: %v", err)
-	}
+	// Attachment files whose mail is gone (deleted, pruned, re-imported) are removed in the background.
+	go func() {
+		if err := store.CleanFiles(); err != nil {
+			log.Printf("cleaning attachment files: %v", err)
+		}
+	}()
 	// INBOXED_NO_REVEAL=1: headless checks save attachments without opening a Finder window.
 	if os.Getenv("INBOXED_NO_REVEAL") == "1" {
 		reveal = func(string) error { return nil }

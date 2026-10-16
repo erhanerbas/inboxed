@@ -77,10 +77,10 @@
   </main>
 </div>
 
-<!-- A new message re-mounts the panel, so focus and its state start fresh. The {#if} sits inside the {#key} so it's
-     the panel's own block: opening and closing animate (local transitions only play for their own block). -->
 <NewMailBanner />
 
+<!-- Every new message re-mounts the panel, so focus and its state start fresh; its transition is global, so it
+     animates although its block is the {#key}'s. -->
 {#key ui.composeKey}
   {#if ui.composing}<Compose />{/if}
 {/key}

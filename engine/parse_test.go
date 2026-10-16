@@ -139,3 +139,11 @@ func TestParseRefs(t *testing.T) {
 		t.Errorf("refs %v root %q", p.Refs, p.Root)
 	}
 }
+
+func TestUnnamedPartsGetAnExtension(t *testing.T) {
+	p, _ := parseMessage(crlf("From: mailer@x\nMIME-Version: 1.0\nContent-Type: multipart/report; boundary=b\n\n"+
+		"--b\nContent-Type: text/plain\n\nDelivery failed.\n--b\nContent-Type: message/rfc822\n\nFrom: you@x\nSubject: Hi\n\nHello\n--b--\n"), fallback)
+	if len(p.Attachments) != 1 || p.Attachments[0].Name != "attachment.eml" {
+		t.Errorf("attachments %+v", p.Attachments)
+	}
+}
