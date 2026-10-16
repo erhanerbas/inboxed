@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -166,23 +167,36 @@ func (s *Store) KnownUIDs(mailboxID string) (map[uint32]bool, error) {
 // The same message found in another folder (a Sent copy, a Gmail label) only gains another location.
 func (s *Store) AddMessage(in Incoming) error {
 	msgID := in.AccountID + "/" + in.HeaderID
-	threadID := in.AccountID + "/" + in.Root
+	for i := range in.Attachments { // outside the transaction: a file nobody refers to is cleaned at the next start
+		if i < len(in.Files) {
+			hash, err := s.saveFile(in.Files[i])
+			if err != nil {
+				return err
+			}
+			in.Attachments[i].Hash = hash
+		}
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var threadID string
 	err = tx.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&threadID)
 	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := tx.Exec(`INSERT INTO threads (id, account_id, subject, snippet, participants, last_date, has_attachments)
-			VALUES (?, ?, ?, '', '[]', '', 0) ON CONFLICT(id) DO NOTHING`, threadID, in.AccountID, in.Subject); err != nil {
+		if threadID, err = joinThread(tx, in, msgID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject, html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			msgID, threadID, toJSON(in.From), toJSON(orEmpty(in.To)), toJSON(orEmpty(in.Cc)), in.Date.UTC().Format(isoDate),
-			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject); err != nil {
+			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject, in.HTML); err != nil {
 			return err
+		}
+		for _, ref := range in.Refs {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO message_refs (ref, message_id) VALUES (?, ?)`, in.AccountID+"/"+ref, msgID); err != nil {
+				return err
+			}
 		}
 	} else if err != nil {
 		return err
@@ -206,6 +220,74 @@ func (s *Store) AddMessage(in Incoming) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// joinThread picks the thread a new message belongs to, by every link it has to stored mail: its root's thread, the
+// threads of stored messages it refers to, and of stored messages that refer to it (a reply that arrived first). So a
+// message joins its conversation even when a mailing list trimmed its References or its original came later. When it
+// links several threads, they're one conversation: the others merge into the first. With no link, it starts
+// <account>/<root>.
+func joinThread(tx *sql.Tx, in Incoming, msgID string) (string, error) {
+	var linked []string
+	collect := func(query string, args ...any) error {
+		rows, err := tx.Query(query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			if !slices.Contains(linked, id) {
+				linked = append(linked, id)
+			}
+		}
+		return rows.Err()
+	}
+	root := in.AccountID + "/" + in.Root
+	if err := collect(`SELECT id FROM threads WHERE id = ?`, root); err != nil {
+		return "", err
+	}
+	if len(in.Refs) > 0 {
+		refs := make([]any, len(in.Refs))
+		for i, r := range in.Refs {
+			refs[i] = in.AccountID + "/" + r
+		}
+		if err := collect(`SELECT thread_id FROM messages WHERE id IN (?`+strings.Repeat(", ?", len(refs)-1)+`)`, refs...); err != nil {
+			return "", err
+		}
+	}
+	if err := collect(`SELECT m.thread_id FROM message_refs r JOIN messages m ON m.id = r.message_id WHERE r.ref = ?`, msgID); err != nil {
+		return "", err
+	}
+	if len(linked) == 0 {
+		_, err := tx.Exec(`INSERT INTO threads (id, account_id, subject, snippet, participants, last_date, has_attachments)
+			VALUES (?, ?, ?, '', '[]', '', 0)`, root, in.AccountID, in.Subject)
+		return root, err
+	}
+	return linked[0], mergeThreads(tx, linked[0], linked[1:])
+}
+
+// mergeThreads moves threads' messages, folders and queued changes into one, then deletes them (and, by trigger,
+// their search rows). Flags combine; syncThread re-derives them from the server where it can.
+func mergeThreads(tx *sql.Tx, into string, from []string) error {
+	for _, f := range from {
+		for _, q := range []string{
+			`UPDATE messages SET thread_id = ?1 WHERE thread_id = ?2`,
+			`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) SELECT ?1, mailbox_id FROM thread_mailboxes WHERE thread_id = ?2`,
+			`UPDATE pending_changes SET thread_id = ?1 WHERE thread_id = ?2`,
+			`UPDATE threads SET unread = unread OR (SELECT unread FROM threads WHERE id = ?2),
+				starred = starred OR (SELECT starred FROM threads WHERE id = ?2) WHERE id = ?1`,
+			`DELETE FROM threads WHERE id = ?2`,
+		} {
+			if _, err := tx.Exec(q, into, f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // refreshThread recomputes a thread's summary fields and search row from its stored messages. Its subject is the

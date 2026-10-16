@@ -2,9 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -103,9 +105,24 @@ var migrations = []string{
 	CREATE INDEX pending_changes_thread ON pending_changes(thread_id);`,
 	// The folder's HIGHESTMODSEQ when last synced (CONDSTORE servers): flag changes since then are all that's fetched.
 	`ALTER TABLE mailboxes ADD COLUMN modseq INTEGER NOT NULL DEFAULT 0;`,
+	`ALTER TABLE messages ADD COLUMN html TEXT NOT NULL DEFAULT '';
+	-- What each message refers to ('<account>/<Message-ID>'), so a message can find its thread from either side.
+	CREATE TABLE message_refs (
+		ref TEXT NOT NULL,
+		message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+		PRIMARY KEY (ref, message_id)
+	);
+	CREATE INDEX message_refs_message ON message_refs(message_id);
+	-- Mail imported before this lacks HTML, attachment content and references: forget it, so sync imports it again.
+	DELETE FROM pending_changes WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap');
+	DELETE FROM threads WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap');
+	UPDATE mailboxes SET status = '', modseq = 0 WHERE path IS NOT NULL;`,
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db    *sql.DB
+	files string // attachment content, one file per distinct content: <data dir>/attachments/<sha256>
+}
 
 func OpenStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
@@ -114,7 +131,7 @@ func OpenStore(path string) (*Store, error) {
 	}
 	// ponytail: one connection serializes all access; plenty for one user. Pool readers if Phase 4 sync contends.
 	db.SetMaxOpenConns(1)
-	s := &Store{db}
+	s := &Store{db: db, files: filepath.Join(filepath.Dir(path), "attachments")}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -124,7 +141,10 @@ func OpenStore(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func (s *Store) migrate() error {
+func (s *Store) migrate() error { return s.migrateTo(len(migrations)) }
+
+// migrateTo applies migrations up to n (tests stop early to build an older database).
+func (s *Store) migrateTo(n int) error {
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
@@ -132,7 +152,7 @@ func (s *Store) migrate() error {
 	if version > len(migrations) {
 		return fmt.Errorf("database schema %d is newer than this engine understands (%d); update Inboxed", version, len(migrations))
 	}
-	for i := version; i < len(migrations); i++ {
+	for i := version; i < n; i++ {
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
@@ -261,7 +281,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 	} else if err != nil {
 		return t, err
 	}
-	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments, subject,
+	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments, subject, html,
 		EXISTS (SELECT 1 FROM message_locations ml JOIN mailboxes mb ON mb.id = ml.mailbox_id
 			WHERE ml.message_id = messages.id AND mb.role = 'drafts')
 		FROM messages WHERE thread_id = ? ORDER BY date`, id)
@@ -272,7 +292,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 	for rows.Next() {
 		m := Message{ThreadID: id}
 		var from, to, cc, attachments string
-		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments, &m.Subject, &m.Draft); err != nil {
+		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments, &m.Subject, &m.HTML, &m.Draft); err != nil {
 			return t, err
 		}
 		for _, f := range []struct {
@@ -283,6 +303,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 				return t, err
 			}
 		}
+		m.HTML = s.inlineImages(m.HTML, m.Attachments)
 		t.Messages = append(t.Messages, m)
 	}
 	return t, rows.Err()
@@ -514,4 +535,20 @@ func (s *Store) MarkAllRead(accountID, key string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+const maxInline = 5 << 20 // bigger inline images stay cid: links rather than swell a thread's response
+
+// inlineImages points the HTML's cid: references at data: URLs of the stored images, so the sandboxed frame (which
+// loads nothing from anywhere) can show them.
+func (s *Store) inlineImages(html string, attachments []Attachment) string {
+	for _, a := range attachments {
+		if a.CID == "" || a.Size > maxInline || !strings.Contains(html, "cid:"+a.CID) {
+			continue
+		}
+		if data, err := s.File(a.Hash); err == nil {
+			html = strings.ReplaceAll(html, "cid:"+a.CID, "data:"+a.Type+";base64,"+base64.StdEncoding.EncodeToString(data))
+		}
+	}
+	return html
 }

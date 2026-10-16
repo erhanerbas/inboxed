@@ -46,6 +46,10 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	// Attachment files whose mail is gone (deleted, pruned, re-imported) are removed while nothing is syncing yet.
+	if err := store.CleanFiles(); err != nil {
+		log.Printf("cleaning attachment files: %v", err)
+	}
 	// INBOXED_FAKE_KEYCHAIN=1 keeps passwords in memory, for headless checks; Rust clears it for the app.
 	if os.Getenv("INBOXED_FAKE_KEYCHAIN") == "1" {
 		keyring.MockInit()
