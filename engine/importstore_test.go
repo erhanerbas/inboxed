@@ -113,7 +113,7 @@ func TestUpsertMailboxParents(t *testing.T) {
 
 // Removing an account cascades through message_locations; without an index on message_id that is quadratic.
 func TestRemoveLargeAccountIsFast(t *testing.T) {
-	if testing.Short() {
+	if testing.Short() || raceEnabled {
 		t.Skip("timing test")
 	}
 	s := newTestStore(t)

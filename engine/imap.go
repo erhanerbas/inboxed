@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -9,10 +10,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	netmail "net/mail"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -25,7 +28,16 @@ import (
 const (
 	keyringService = "dev.inboxed.app"
 	dialTimeout    = 15 * time.Second
-	fetchBatch     = 50
+	headerBatch    = 200      // UIDs per header-only fetch
+	bodyBatch      = 50       // whole messages per fetch at most
+	bodyBatchBytes = 20 << 20 // …and roughly this many bytes, so big attachments never pile up in memory
+)
+
+// Variables so tests can shorten them. go-imap only times out the greeting, so a server that stops answering would
+// otherwise hang a sign-in or an import forever.
+var (
+	signInTimeout = 45 * time.Second // the add-account form waits on this
+	idleTimeout   = 2 * time.Minute  // an import gives up when the server has answered nothing for this long
 )
 
 // problem is an error meant for a person (a form, a status line). The API returns its text as is, with status 400.
@@ -33,6 +45,13 @@ type problem string
 
 func (p problem) Error() string      { return string(p) }
 func (problem) Is(target error) bool { return target == ErrInvalid }
+
+// commandFailed is true when the server answered NO or BAD to one command (a folder it can't open, a message it
+// can't send). The connection is still fine, so an import skips that item instead of stopping.
+func commandFailed(err error) bool {
+	var e *imap.Error
+	return errors.As(err, &e)
+}
 
 func address(s Server) string { return net.JoinHostPort(s.Host, strconv.Itoa(s.Port)) }
 
@@ -44,7 +63,11 @@ func refused(s Server, err error) error {
 	return problem(fmt.Sprintf("%s didn't accept the username or password. (%v)", s.Host, err))
 }
 
-// Unencrypted connections are only for servers on this computer (tests, local bridges); anything else needs TLS.
+func stoppedAnswering(s Server) error {
+	return problem(fmt.Sprintf("%s stopped answering. Try again later.", s.Host))
+}
+
+// Unencrypted connections are only for servers on this computer (tests); anything else needs TLS.
 func checkSecurity(s Server) error {
 	switch s.Security {
 	case "tls", "starttls":
@@ -76,9 +99,18 @@ func loginIMAP(s Server, username, password string) (*imapclient.Client, error) 
 	if err != nil {
 		return nil, cantConnect(s, err)
 	}
-	if err := c.Login(username, password).Wait(); err != nil {
+	timer := time.AfterFunc(signInTimeout, func() { c.Close() })
+	err = c.Login(username, password).Wait()
+	if !timer.Stop() {
+		return nil, stoppedAnswering(s)
+	}
+	switch {
+	case commandFailed(err): // the server said NO: that's the credentials
 		c.Close()
 		return nil, refused(s, err)
+	case err != nil:
+		c.Close()
+		return nil, problem(fmt.Sprintf("The connection to %s dropped while signing in. Try again. (%v)", s.Host, err))
 	}
 	return c, nil
 }
@@ -111,7 +143,12 @@ func checkSMTP(s Server, username, password string) error {
 		c = smtp.NewClient(conn)
 	}
 	defer c.Close()
-	if err := c.Auth(sasl.NewPlainClient("", username, password)); err != nil {
+	// PLAIN where offered; many Exchange servers only offer LOGIN.
+	auth := sasl.NewPlainClient("", username, password)
+	if !c.SupportsAuth(sasl.Plain) && c.SupportsAuth(sasl.Login) {
+		auth = sasl.NewLoginClient(username, password)
+	}
+	if err := c.Auth(auth); err != nil {
 		return refused(s, err)
 	}
 	return nil
@@ -179,7 +216,7 @@ func (im *Importer) Start(accountID string) {
 	}()
 }
 
-// Stop cancels an account's import and forgets its progress.
+// Stop cancels an account's import (closing its connection, so even a stalled command ends) and forgets its progress.
 func (im *Importer) Stop(accountID string) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
@@ -191,11 +228,16 @@ func (im *Importer) Stop(accountID string) {
 
 type folderWork struct {
 	mailboxID, path string
-	inbox           bool
+	rank            int        // 0 inbox, 1 other folders, 2 All Mail: the mail people look at first comes first
 	uids            []imap.UID // newest first
 }
 
-func (im *Importer) importAccount(ctx context.Context, accountID string) error {
+var (
+	idHeader  = &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: []string{"Message-ID"}, Peek: true}
+	wholeBody = &imap.FetchItemBodySection{Peek: true} // PEEK: importing never marks mail as read on the server
+)
+
+func (im *Importer) importAccount(ctx context.Context, accountID string) (err error) {
 	set, err := im.store.AccountSettings(accountID)
 	if err != nil {
 		return err
@@ -208,12 +250,24 @@ func (im *Importer) importAccount(ctx context.Context, accountID string) error {
 	if err != nil {
 		return err
 	}
-	// A closure: `defer c.Logout().Wait()` would send LOGOUT right away and defer only the Wait.
+	// Closing the connection is the only way to end a command the server never answers: on cancel (the account was
+	// removed) and when the server has been silent for idleTimeout.
+	var stalled atomic.Bool
+	watchdog := time.AfterFunc(idleTimeout, func() { stalled.Store(true); c.Close() })
+	alive := func() { watchdog.Reset(idleTimeout) }
+	stopOnCancel := context.AfterFunc(ctx, func() { c.Close() })
 	defer func() {
+		alive()
 		c.Logout().Wait()
 		c.Close()
+		watchdog.Stop()
+		stopOnCancel()
+		if stalled.Load() {
+			err = stoppedAnswering(set.IMAP)
+		}
 	}()
 
+	alive()
 	listed, err := c.List("", "*", &imap.ListOptions{ReturnSpecialUse: true}).Collect()
 	if err != nil {
 		return err
@@ -225,9 +279,13 @@ func (im *Importer) importAccount(ctx context.Context, accountID string) error {
 		if skipFolder(box) {
 			continue
 		}
+		alive()
 		sel, err := c.Select(box.Mailbox, &imap.SelectOptions{ReadOnly: true}).Wait()
-		if err != nil {
-			return fmt.Errorf("opening %s: %w", box.Mailbox, err)
+		if commandFailed(err) {
+			log.Printf("import %s: skipping %s: %v", accountID, box.Mailbox, err)
+			continue
+		} else if err != nil {
+			return err
 		}
 		role := mailboxRole(box)
 		id, err := im.store.UpsertMailbox(accountID, box.Mailbox, folderName(box), role, parentPath(box), sel.UIDValidity)
@@ -237,8 +295,12 @@ func (im *Importer) importAccount(ctx context.Context, accountID string) error {
 		if sel.NumMessages == 0 {
 			continue
 		}
+		alive()
 		found, err := c.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
-		if err != nil {
+		if commandFailed(err) {
+			log.Printf("import %s: skipping %s: %v", accountID, box.Mailbox, err)
+			continue
+		} else if err != nil {
 			return err
 		}
 		known, err := im.store.KnownUIDs(id)
@@ -253,76 +315,177 @@ func (im *Importer) importAccount(ctx context.Context, accountID string) error {
 		}
 		slices.SortFunc(uids, func(a, b imap.UID) int { return cmp.Compare(b, a) })
 		total += len(uids)
-		work = append(work, folderWork{id, box.Mailbox, role != nil && *role == "inbox", uids})
+		rank := 1
+		switch {
+		case role != nil && *role == "inbox":
+			rank = 0
+		case slices.Contains(box.Attrs, imap.MailboxAttrAll):
+			rank = 2 // All Mail repeats most of the other folders, so by then it's mostly headers-only
+		}
+		work = append(work, folderWork{id, box.Mailbox, rank, uids})
 	}
-	// The inbox first: it's the mail people look at first.
-	slices.SortStableFunc(work, func(a, b folderWork) int {
-		if a.inbox == b.inbox {
-			return 0
-		}
-		if a.inbox {
-			return -1
-		}
-		return 1
-	})
+	slices.SortStableFunc(work, func(a, b folderWork) int { return cmp.Compare(a.rank, b.rank) })
 
-	done := 0
+	done, before := 0, 0 // before: UIDs in the folders already finished
 	im.report(accountID, done, total)
-	body := &imap.FetchItemBodySection{Peek: true} // PEEK: importing never marks mail as read on the server
 	for _, w := range work {
 		if len(w.uids) == 0 {
 			continue
 		}
-		if _, err := c.Select(w.path, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
-			return fmt.Errorf("opening %s: %w", w.path, err)
+		alive()
+		if _, err := c.Select(w.path, &imap.SelectOptions{ReadOnly: true}).Wait(); commandFailed(err) {
+			log.Printf("import %s: skipping %s: %v", accountID, w.path, err)
+			before += len(w.uids)
+			done = before
+			continue
+		} else if err != nil {
+			return err
 		}
-		for start := 0; start < len(w.uids); start += fetchBatch {
+		for start := 0; start < len(w.uids); start += headerBatch {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			batch := w.uids[start:min(start+fetchBatch, len(w.uids))]
-			msgs, err := c.Fetch(imap.UIDSetNum(batch...), &imap.FetchOptions{
-				UID: true, Flags: true, InternalDate: true, BodySection: []*imap.FetchItemBodySection{body},
-			}).Collect()
-			if err != nil {
+			end := min(start+headerBatch, len(w.uids))
+			if err := im.importChunk(c, alive, accountID, w, w.uids[start:end], func() {
+				done++
+				im.report(accountID, done, total)
+			}); err != nil {
 				return err
 			}
-			slices.SortFunc(msgs, func(a, b *imapclient.FetchMessageBuffer) int { return cmp.Compare(b.UID, a.UID) })
-			for _, m := range msgs {
-				done++
-				p, err := parseMessage(m.FindBodySection(body), m.InternalDate)
+			done = before + end // exact even when the server dropped UIDs between the search and the fetch
+			im.report(accountID, done, total)
+		}
+		before += len(w.uids)
+	}
+	return nil
+}
+
+// importChunk imports a run of UIDs from the selected folder in two passes. Headers first: a message already stored
+// (a copy in another folder, a Gmail label, All Mail) only gains a location. Then whole messages, for the rest only.
+func (im *Importer) importChunk(c *imapclient.Client, alive func(), accountID string, w folderWork, uids []imap.UID, step func()) error {
+	alive()
+	heads, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{
+		UID: true, Flags: true, RFC822Size: true, BodySection: []*imap.FetchItemBodySection{idHeader},
+	}).Collect()
+	if err != nil && !commandFailed(err) {
+		return err
+	}
+	sizes := map[imap.UID]int64{}
+	var need []imap.UID
+	if err != nil {
+		need = uids // the server refused the header pass: fetch everything whole instead
+	} else {
+		for _, h := range heads {
+			sizes[h.UID] = h.RFC822Size
+			if id := messageID(h.FindBodySection(idHeader)); id != "" {
+				ok, err := im.store.AddLocation(accountID, w.mailboxID, uint32(h.UID), id,
+					slices.Contains(h.Flags, imap.FlagSeen), slices.Contains(h.Flags, imap.FlagFlagged))
 				if err != nil {
-					log.Printf("import %s: skipping UID %d in %s: %v", accountID, m.UID, w.path, err)
-					continue
-				}
-				if err := im.store.AddMessage(Incoming{
-					AccountID: accountID, MailboxID: w.mailboxID, UID: uint32(m.UID),
-					Seen: slices.Contains(m.Flags, imap.FlagSeen), Flagged: slices.Contains(m.Flags, imap.FlagFlagged),
-					parsed: p,
-				}); err != nil {
 					return err
 				}
+				if ok {
+					step()
+					continue
+				}
 			}
-			im.report(accountID, done, total)
+			need = append(need, h.UID)
+		}
+	}
+	slices.SortFunc(need, func(a, b imap.UID) int { return cmp.Compare(b, a) })
+	for _, batch := range sizedBatches(need, sizes, bodyBatch, bodyBatchBytes) {
+		if err := im.fetchBodies(c, alive, accountID, w, batch, step); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// skipFolder leaves out folders that can't be opened, and Gmail's views that only repeat mail filed elsewhere.
+// fetchBodies downloads and stores whole messages. When the server refuses a batch (one corrupt or oversized
+// message), it retries one message at a time and skips only the ones it can't get.
+func (im *Importer) fetchBodies(c *imapclient.Client, alive func(), accountID string, w folderWork, uids []imap.UID, step func()) error {
+	alive()
+	msgs, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{
+		UID: true, Flags: true, InternalDate: true, BodySection: []*imap.FetchItemBodySection{wholeBody},
+	}).Collect()
+	switch {
+	case commandFailed(err) && len(uids) > 1:
+		for _, u := range uids {
+			if err := im.fetchBodies(c, alive, accountID, w, []imap.UID{u}, step); err != nil {
+				return err
+			}
+		}
+		return nil
+	case commandFailed(err):
+		log.Printf("import %s: skipping UID %d in %s: %v", accountID, uids[0], w.path, err)
+		step()
+		return nil
+	case err != nil:
+		return err
+	}
+	slices.SortFunc(msgs, func(a, b *imapclient.FetchMessageBuffer) int { return cmp.Compare(b.UID, a.UID) })
+	for _, m := range msgs {
+		step()
+		p, err := parseMessage(m.FindBodySection(wholeBody), m.InternalDate)
+		if err != nil {
+			log.Printf("import %s: skipping UID %d in %s: %v", accountID, m.UID, w.path, err)
+			continue
+		}
+		if err := im.store.AddMessage(Incoming{
+			AccountID: accountID, MailboxID: w.mailboxID, UID: uint32(m.UID),
+			Seen: slices.Contains(m.Flags, imap.FlagSeen), Flagged: slices.Contains(m.Flags, imap.FlagFlagged),
+			parsed: p,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// messageID reads the Message-ID out of a header-only fetch, as parseMessage would (no angle brackets).
+func messageID(header []byte) string {
+	msg, err := netmail.ReadMessage(bytes.NewReader(append(header, "\r\n"...)))
+	if err != nil {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(msg.Header.Get("Message-Id")), "<>")
+}
+
+// sizedBatches splits UIDs into fetches of at most maxCount messages and roughly maxBytes, so a run of large
+// attachments never sits in memory all at once. A message bigger than maxBytes gets a batch of its own.
+func sizedBatches(uids []imap.UID, sizes map[imap.UID]int64, maxCount int, maxBytes int64) [][]imap.UID {
+	var out [][]imap.UID
+	var cur []imap.UID
+	var size int64
+	for _, u := range uids {
+		if len(cur) > 0 && (len(cur) == maxCount || size+sizes[u] > maxBytes) {
+			out = append(out, cur)
+			cur, size = nil, 0
+		}
+		cur = append(cur, u)
+		size += sizes[u]
+	}
+	if len(cur) > 0 {
+		out = append(out, cur)
+	}
+	return out
+}
+
+// skipFolder leaves out folders that can't be opened, and Gmail views that only repeat mail filed elsewhere.
+// All Mail stays: on Gmail, archived mail lives nowhere else.
 func skipFolder(box *imap.ListData) bool {
 	for _, a := range box.Attrs {
 		switch a {
-		case imap.MailboxAttrNoSelect, imap.MailboxAttrNonExistent, imap.MailboxAttrAll, imap.MailboxAttrFlagged, imap.MailboxAttrImportant:
+		case imap.MailboxAttrNoSelect, imap.MailboxAttrNonExistent, imap.MailboxAttrFlagged, imap.MailboxAttrImportant:
 			return true
 		}
 	}
 	return false
 }
 
+// Gmail's All Mail (\All) is its archive, as Apple Mail treats it.
 var specialUse = map[imap.MailboxAttr]string{
 	imap.MailboxAttrSent: "sent", imap.MailboxAttrDrafts: "drafts", imap.MailboxAttrTrash: "trash",
-	imap.MailboxAttrJunk: "spam", imap.MailboxAttrArchive: "archive",
+	imap.MailboxAttrJunk: "spam", imap.MailboxAttrArchive: "archive", imap.MailboxAttrAll: "archive",
 }
 
 var roleNames = map[string]string{

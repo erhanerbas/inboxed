@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -91,24 +94,37 @@ func testServers(t *testing.T) (imapSrv, smtpSrv Server, user *imapmemserver.Use
 	appendRaw(t, user, "Sent", myReply, imap.FlagSeen)
 	appendRaw(t, user, "Work/Projects", checklist, imap.FlagSeen, imap.FlagFlagged)
 	mem.AddUser(user)
+	return serveIMAP(t, mem, nil), serveSMTP(t, smtpBackend{}), user
+}
 
+// serveIMAP serves mem on this machine for the test. wrap, when set, can make the session misbehave.
+func serveIMAP(t *testing.T, mem *imapmemserver.Server, wrap func(imapserver.Session) imapserver.Session) Server {
+	t.Helper()
 	is := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return mem.NewSession(), nil, nil
+			var s imapserver.Session = mem.NewSession()
+			if wrap != nil {
+				s = wrap(s)
+			}
+			return s, nil, nil
 		},
 		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}},
 		InsecureAuth: true,
 	})
-	iln := listen(t)
-	go is.Serve(iln)
+	ln := listen(t)
+	go is.Serve(ln)
 	t.Cleanup(func() { is.Close() })
+	return local(ln)
+}
 
-	ss := smtp.NewServer(smtpBackend{})
+func serveSMTP(t *testing.T, backend smtp.Backend) Server {
+	t.Helper()
+	ss := smtp.NewServer(backend)
 	ss.AllowInsecureAuth = true
-	sln := listen(t)
-	go ss.Serve(sln)
+	ln := listen(t)
+	go ss.Serve(ln)
 	t.Cleanup(func() { ss.Close() })
-	return local(iln), local(sln), user
+	return local(ln)
 }
 
 func waitImport(t *testing.T, im *Importer, id string) Progress {
@@ -224,5 +240,225 @@ func TestImportAccount(t *testing.T) {
 	}
 	if im.Progress(a.ID) != nil {
 		t.Error("a removed account still reports progress")
+	}
+}
+
+// flaky wraps a session to misbehave like real servers do: a folder that can't be opened, a message that can't be
+// fetched. It counts whole-message downloads.
+type flaky struct {
+	imapserver.SessionIMAP4rev2 // the full interface, or the server refuses a session that hides IMAP4rev2
+	failSelect                  string
+	failUID                     imap.UID
+	bodies                      *atomic.Int32
+}
+
+func (f flaky) Select(name string, options *imap.SelectOptions) (*imap.SelectData, error) {
+	if name == f.failSelect {
+		return nil, &imap.Error{Type: imap.StatusResponseTypeNo, Text: "can't open this folder"}
+	}
+	return f.SessionIMAP4rev2.Select(name, options)
+}
+
+func (f flaky) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
+	whole := slices.ContainsFunc(options.BodySection, func(s *imap.FetchItemBodySection) bool {
+		return s.Specifier == imap.PartSpecifierNone && len(s.HeaderFields) == 0
+	})
+	if set, ok := numSet.(imap.UIDSet); ok && whole {
+		if f.failUID != 0 && set.Contains(f.failUID) {
+			return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "some messages could not be fetched"}
+		}
+		if uids, ok := set.Nums(); ok && f.bodies != nil {
+			f.bodies.Add(int32(len(uids)))
+		}
+	}
+	return f.SessionIMAP4rev2.Fetch(w, numSet, options)
+}
+
+func accountMessages(t *testing.T, s *Store, accountID string) int {
+	t.Helper()
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id LIKE ?`, accountID+"/%").Scan(&n)
+	return n
+}
+
+func TestImportSkipsWhatItCantRead(t *testing.T) {
+	keyring.MockInit()
+	mem := imapmemserver.New()
+	u := imapmemserver.NewUser("you@example.com", "secret")
+	u.Create("INBOX", nil)
+	u.Create("Broken", nil)
+	appendRaw(t, u, "INBOX", dinner)
+	appendRaw(t, u, "INBOX", herReply) // UID 2: the server can't send it
+	appendRaw(t, u, "INBOX", newsletter)
+	appendRaw(t, u, "Broken", checklist)
+	mem.AddUser(u)
+	imapSrv := serveIMAP(t, mem, func(s imapserver.Session) imapserver.Session {
+		return flaky{SessionIMAP4rev2: s.(imapserver.SessionIMAP4rev2), failSelect: "Broken", failUID: 2}
+	})
+	s := newTestStore(t)
+	im := NewImporter(s)
+	a, err := im.AddAccount(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: serveSMTP(t, smtpBackend{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := waitImport(t, im, a.ID); p.State != "done" {
+		t.Fatalf("one bad folder and one bad message stopped the import: %+v", p)
+	}
+	if n := accountMessages(t, s, a.ID); n != 2 {
+		t.Errorf("%d messages imported, want the 2 readable ones", n)
+	}
+}
+
+func TestImportDownloadsEachMessageOnce(t *testing.T) {
+	keyring.MockInit()
+	mem := imapmemserver.New()
+	u := imapmemserver.NewUser("you@example.com", "secret")
+	u.Create("INBOX", nil)
+	u.Create("Archive", nil)
+	appendRaw(t, u, "INBOX", dinner)
+	appendRaw(t, u, "Archive", dinner) // the same message again, like a Gmail label or All Mail
+	appendRaw(t, u, "Archive", newsletter)
+	mem.AddUser(u)
+	var bodies atomic.Int32
+	imapSrv := serveIMAP(t, mem, func(s imapserver.Session) imapserver.Session {
+		return flaky{SessionIMAP4rev2: s.(imapserver.SessionIMAP4rev2), bodies: &bodies}
+	})
+	s := newTestStore(t)
+	im := NewImporter(s)
+	a, err := im.AddAccount(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: serveSMTP(t, smtpBackend{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := waitImport(t, im, a.ID); p.State != "done" || p.Done != 3 {
+		t.Fatalf("progress %+v", p)
+	}
+	if got := bodies.Load(); got != 2 {
+		t.Errorf("downloaded %d whole messages, want 2 (the copy in Archive needs only its headers)", got)
+	}
+	th, _ := s.Thread(a.ID + "/d1@example.com")
+	slices.Sort(th.MailboxIDs)
+	if !slices.Equal(th.MailboxIDs, []string{a.ID + "/Archive", a.ID + "/INBOX"}) {
+		t.Errorf("dinner thread folders %v", th.MailboxIDs)
+	}
+}
+
+// silentServer greets, optionally answers LOGIN, and then never answers again.
+func silentServer(t *testing.T, login bool) Server {
+	t.Helper()
+	ln := listen(t)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				fmt.Fprint(conn, "* OK [CAPABILITY IMAP4rev1] ready\r\n")
+				r := bufio.NewReader(conn)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					tag, rest, _ := strings.Cut(line, " ")
+					if login && strings.HasPrefix(strings.ToUpper(rest), "LOGIN") {
+						fmt.Fprintf(conn, "%s OK logged in\r\n", tag)
+					}
+				}
+			}()
+		}
+	}()
+	t.Cleanup(func() { ln.Close() })
+	return local(ln)
+}
+
+func TestSignInGivesUpOnASilentServer(t *testing.T) {
+	defer func(old time.Duration) { signInTimeout = old }(signInTimeout)
+	signInTimeout = 200 * time.Millisecond
+	_, smtpSrv, _ := testServers(t)
+	start := time.Now()
+	_, err := NewImporter(newTestStore(t)).AddAccount(AccountSettings{Email: "you@example.com", Password: "secret",
+		IMAP: silentServer(t, false), SMTP: smtpSrv})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stopped answering") || time.Since(start) > 3*time.Second {
+		t.Errorf("after %v: %v", time.Since(start), err)
+	}
+}
+
+func TestImportGivesUpOnAStalledServer(t *testing.T) {
+	defer func(old time.Duration) { idleTimeout = old }(idleTimeout)
+	idleTimeout = 300 * time.Millisecond
+	keyring.MockInit()
+	s := newTestStore(t)
+	srv := silentServer(t, true)
+	if err := s.CreateAccount(Account{ID: "acc", Name: "Home", Email: "you@example.com", Provider: "imap", Color: "c"},
+		AccountSettings{Username: "you@example.com", IMAP: srv, SMTP: srv}); err != nil {
+		t.Fatal(err)
+	}
+	keyring.Set(keyringService, "acc", "secret")
+	im := NewImporter(s)
+	im.Start("acc")
+	if p := waitImport(t, im, "acc"); p.State != "error" || !strings.Contains(p.Error, "stopped answering") {
+		t.Errorf("progress %+v", p)
+	}
+}
+
+func TestGmailAllMailIsTheArchive(t *testing.T) {
+	all := &imap.ListData{Mailbox: "[Gmail]/All Mail", Delim: '/', Attrs: []imap.MailboxAttr{imap.MailboxAttrAll}}
+	if skipFolder(all) {
+		t.Error("All Mail is skipped, but on Gmail archived mail lives only there")
+	}
+	if r := mailboxRole(all); r == nil || *r != "archive" {
+		t.Errorf("All Mail role %v, want archive (as Apple Mail treats it)", r)
+	}
+}
+
+func TestSizedBatches(t *testing.T) {
+	const mb = 1 << 20
+	sizes := map[imap.UID]int64{1: 15 * mb, 2: 10 * mb, 3: 1024, 4: 30 * mb, 5: 1024}
+	got := sizedBatches([]imap.UID{1, 2, 3, 4, 5}, sizes, 50, 20*mb)
+	want := [][]imap.UID{{1}, {2, 3}, {4}, {5}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("by size: %v, want %v", got, want)
+	}
+	many := make([]imap.UID, 120)
+	for i := range many {
+		many[i] = imap.UID(i + 1)
+	}
+	if b := sizedBatches(many, nil, 50, 20*mb); len(b) != 3 || len(b[0]) != 50 || len(b[2]) != 20 {
+		t.Errorf("by count: %d batches", len(b))
+	}
+}
+
+// loginOnly is an SMTP server that offers AUTH LOGIN and not PLAIN, like many Exchange servers.
+type loginOnly struct{ smtpSession }
+type loginBackend struct{}
+
+func (loginBackend) NewSession(*smtp.Conn) (smtp.Session, error) { return loginOnly{}, nil }
+func (loginOnly) AuthMechanisms() []string                       { return []string{sasl.Login} }
+func (loginOnly) Auth(string) (sasl.Server, error)               { return &loginServer{}, nil }
+
+type loginServer struct {
+	step int
+	user string
+}
+
+func (l *loginServer) Next(response []byte) ([]byte, bool, error) {
+	l.step++
+	switch {
+	case l.step == 1 && response == nil:
+		return []byte("Username:"), false, nil
+	case l.user == "":
+		l.user = string(response)
+		return []byte("Password:"), false, nil
+	case l.user == "you@example.com" && string(response) == "secret":
+		return nil, true, nil
+	}
+	return nil, true, errors.New("bad credentials")
+}
+
+func TestSMTPFallsBackToAuthLogin(t *testing.T) {
+	if err := checkSMTP(serveSMTP(t, loginBackend{}), "you@example.com", "secret"); err != nil {
+		t.Errorf("a LOGIN-only server: %v", err)
 	}
 }
