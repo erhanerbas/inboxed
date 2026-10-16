@@ -50,6 +50,10 @@ func main() {
 	if err := store.CleanFiles(); err != nil {
 		log.Printf("cleaning attachment files: %v", err)
 	}
+	// INBOXED_NO_REVEAL=1: headless checks save attachments without opening a Finder window.
+	if os.Getenv("INBOXED_NO_REVEAL") == "1" {
+		reveal = func(string) error { return nil }
+	}
 	// INBOXED_FAKE_KEYCHAIN=1 keeps passwords in memory, for headless checks; Rust clears it for the app.
 	if os.Getenv("INBOXED_FAKE_KEYCHAIN") == "1" {
 		keyring.MockInit()

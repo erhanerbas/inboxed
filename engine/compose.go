@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"database/sql"
 	"errors"
@@ -23,6 +24,7 @@ type Draft struct {
 	Body      string `json:"body"`
 	ThreadID  string `json:"threadId"`
 	DraftID   string `json:"draftId"`
+	ForwardOf string `json:"forwardOf"` // a message whose attachments go along
 }
 
 // Outgoing is a message ready to send: RFC 5322 bytes and the SMTP envelope.
@@ -111,19 +113,18 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 		h.SetMsgIDList("In-Reply-To", []string{refs[len(refs)-1]})
 		h.SetMsgIDList("References", refs)
 	}
-	h.Set("Content-Type", "text/plain; charset=utf-8")
-	h.Set("Content-Transfer-Encoding", "quoted-printable")
-
-	var buf bytes.Buffer
-	w, err := mail.CreateSingleInlineWriter(&buf, h)
-	if err != nil {
-		return Outgoing{}, err
+	var files []Attachment
+	if d.ForwardOf != "" {
+		if !strings.HasPrefix(d.ForwardOf, d.AccountID+"/") {
+			return Outgoing{}, problem("Forward from the account the message is in.")
+		}
+		if files, err = s.attachments(d.ForwardOf); err != nil {
+			return Outgoing{}, err
+		}
 	}
 	body := strings.ReplaceAll(strings.ReplaceAll(d.Body, "\r\n", "\n"), "\n", "\r\n")
-	if _, err := w.Write([]byte(body)); err != nil {
-		return Outgoing{}, err
-	}
-	if err := w.Close(); err != nil {
+	var buf bytes.Buffer
+	if err := s.writeBody(&buf, h, body, files); err != nil {
 		return Outgoing{}, err
 	}
 	out := Outgoing{Raw: buf.Bytes(), From: email}
@@ -131,4 +132,61 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 		out.Recipients = append(out.Recipients, a.Address)
 	}
 	return out, nil
+}
+
+// writeBody writes the text, alone or (with files) as the first part of multipart/mixed followed by the files.
+func (s *Store) writeBody(buf *bytes.Buffer, h mail.Header, body string, files []Attachment) error {
+	var text mail.InlineHeader
+	text.Set("Content-Type", "text/plain; charset=utf-8")
+	text.Set("Content-Transfer-Encoding", "quoted-printable")
+	if len(files) == 0 {
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+		h.Set("Content-Transfer-Encoding", "quoted-printable")
+		w, err := mail.CreateSingleInlineWriter(buf, h)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			return err
+		}
+		return w.Close()
+	}
+	mw, err := mail.CreateWriter(buf, h)
+	if err != nil {
+		return err
+	}
+	tw, err := mw.CreateSingleInline(text)
+	if err != nil {
+		return err
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	for _, f := range files {
+		data, err := s.File(f.Hash)
+		if err != nil {
+			return problem(fmt.Sprintf("Inboxed doesn't have “%s” any more, so it can't be forwarded.", f.Name))
+		}
+		var ah mail.AttachmentHeader
+		ah.Set("Content-Type", cmp.Or(f.Type, "application/octet-stream"))
+		ah.Set("Content-Transfer-Encoding", "base64")
+		ah.SetFilename(f.Name)
+		if f.CID != "" {
+			ah.Set("Content-Id", "<"+f.CID+">")
+		}
+		aw, err := mw.CreateAttachment(ah)
+		if err != nil {
+			return err
+		}
+		if _, err := aw.Write(data); err != nil {
+			return err
+		}
+		if err := aw.Close(); err != nil {
+			return err
+		}
+	}
+	return mw.Close()
 }

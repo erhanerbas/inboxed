@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -74,6 +75,14 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 	})
 	mux.HandleFunc("DELETE /drafts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, sy.DeleteDraft(r.PathValue("id")))
+	})
+	mux.HandleFunc("POST /messages/{id}/attachments/{index}/open", func(w http.ResponseWriter, r *http.Request) {
+		index, err := strconv.Atoi(r.PathValue("index"))
+		if err != nil {
+			respond(w, nil, ErrNotFound)
+			return
+		}
+		respond(w, nil, openAttachment(s, r.PathValue("id"), index))
 	})
 	mux.HandleFunc("GET /mailboxes", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Mailboxes()
