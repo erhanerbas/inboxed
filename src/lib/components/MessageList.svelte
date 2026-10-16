@@ -105,6 +105,15 @@
         </li>
       {/each}
     </ul>
+  {:else if data.accounts.length === 0}
+    <div class="grid flex-1 place-items-center px-6 text-center">
+      <div class="flex flex-col items-center gap-2">
+        <Icon icon={InboxIcon} size={28} class="text-ink-muted" />
+        <p class="font-medium">No accounts yet</p>
+        <p class="text-ink-muted">Add an IMAP account to bring its mail here.</p>
+        <button class="btn-primary mt-3" onclick={() => (ui.addingAccount = true)}>Add account</button>
+      </div>
+    </div>
   {:else}
     <div class="grid flex-1 place-items-center text-ink-muted">
       <div class="flex flex-col items-center gap-2">

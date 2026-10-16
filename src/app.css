@@ -12,6 +12,7 @@
   --color-ink: #f5f4f3;
   --color-ink-muted: #a8a4a0;
   --color-accent: #ff9f0a;
+  --color-danger: #ff453a; /* Apple's dark-mode system red; destructive actions only */
 
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -119,6 +120,31 @@
     @apply h-8 rounded-lg bg-accent px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
   }
 
+  .btn-secondary {
+    @apply h-8 rounded-lg border border-line px-4 font-medium text-ink transition-colors duration-100 hover:bg-panel active:bg-panel;
+  }
+  /* Destructive actions only: red fill, dark label. */
+  .btn-danger {
+    @apply h-8 rounded-lg bg-danger px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
+  }
+  /* Import progress: a quiet track, never the accent (orange means unread, selected or primary). */
+  progress.import {
+    appearance: none;
+    height: 4px;
+    width: 100%;
+    border: none;
+    border-radius: 2px;
+    background: var(--color-raised);
+  }
+  progress.import::-webkit-progress-bar {
+    background: var(--color-raised);
+    border-radius: 2px;
+  }
+  progress.import::-webkit-progress-value {
+    background: var(--color-ink-muted);
+    border-radius: 2px;
+  }
+
   /* One-line "Label  value" row, used in compose. */
   .field {
     @apply flex h-10 shrink-0 items-center gap-3 border-b border-line px-4;
@@ -137,7 +163,8 @@
   /* Label above its input, used in forms. */
   .stack-field {
     @apply flex flex-col gap-1.5 text-caption font-medium text-ink-muted;
-    & > input {
+    & > input,
+    & > select {
       @apply h-9 rounded-lg border border-line bg-panel px-3 text-ui font-normal text-ink outline-none focus:border-accent;
     }
   }

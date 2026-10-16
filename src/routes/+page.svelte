@@ -4,6 +4,7 @@
   import Compose from "$lib/components/Compose.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
+  import RemoveAccount from "$lib/components/RemoveAccount.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ThreadView from "$lib/components/ThreadView.svelte";
   import { runShortcut } from "$lib/menus";
@@ -80,6 +81,9 @@
 {/if}
 {#if ui.addingAccount}
   <AddAccount />
+{/if}
+{#if ui.removingAccount}
+  <RemoveAccount />
 {/if}
 
 <!-- Always rendered, so screen readers announce the message when it appears. -->

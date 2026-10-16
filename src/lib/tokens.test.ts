@@ -31,3 +31,7 @@ describe("text tokens reach WCAG AA (4.5:1) on every surface", () => {
     }
   }
 });
+
+it("the danger button's label (canvas on danger) reaches 4.5:1", () => {
+  expect(contrast(token("canvas"), token("danger"))).toBeGreaterThanOrEqual(4.5);
+});
