@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -289,6 +290,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 		return t, err
 	}
 	defer rows.Close()
+	budget := int64(maxInlineThread)
 	for rows.Next() {
 		m := Message{ThreadID: id}
 		var from, to, cc, attachments string
@@ -303,7 +305,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 				return t, err
 			}
 		}
-		m.HTML = s.inlineImages(m.HTML, m.Attachments)
+		m.HTML = s.inlineImages(m.HTML, m.Attachments, &budget)
 		t.Messages = append(t.Messages, m)
 	}
 	return t, rows.Err()
@@ -537,16 +539,22 @@ func (s *Store) MarkAllRead(accountID, key string) error {
 	return tx.Commit()
 }
 
-const maxInline = 5 << 20 // bigger inline images stay cid: links rather than swell a thread's response
+const (
+	maxInline       = 5 << 20  // bigger inline images stay cid: links rather than swell a thread's response
+	maxInlineThread = 20 << 20 // and a thread's images together stop here
+)
 
 // inlineImages points the HTML's cid: references at data: URLs of the stored images, so the sandboxed frame (which
-// loads nothing from anywhere) can show them.
-func (s *Store) inlineImages(html string, attachments []Attachment) string {
-	for _, a := range attachments {
-		if a.CID == "" || a.Size > maxInline || !strings.Contains(html, "cid:"+a.CID) {
+// loads nothing from anywhere) can show them. Longer Content-IDs go first, so "a@x" never rewrites part of "a@x2".
+func (s *Store) inlineImages(html string, attachments []Attachment, budget *int64) string {
+	sorted := slices.Clone(attachments)
+	slices.SortFunc(sorted, func(a, b Attachment) int { return len(b.CID) - len(a.CID) })
+	for _, a := range sorted {
+		if a.CID == "" || a.Size > maxInline || a.Size > *budget || !strings.Contains(html, "cid:"+a.CID) {
 			continue
 		}
 		if data, err := s.File(a.Hash); err == nil {
+			*budget -= a.Size
 			html = strings.ReplaceAll(html, "cid:"+a.CID, "data:"+a.Type+";base64,"+base64.StdEncoding.EncodeToString(data))
 		}
 	}

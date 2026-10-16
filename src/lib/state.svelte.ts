@@ -234,17 +234,20 @@ export const senders = () => data.accounts.filter((a) => a.provider === "imap");
 
 let pristine = ""; // the draft as the panel opened, so closing an untouched one saves nothing
 
-/** Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was. */
-export async function compose(draft: Partial<Draft> = {}) {
-  const replacing = ui.composing;
-  if (replacing && (await closeCompose())) return;
+/**
+ * Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was and this
+ * resolves to false.
+ */
+export async function compose(draft: Partial<Draft> = {}): Promise<boolean> {
+  if (ui.composing && (await closeCompose())) return false;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
   pristine = JSON.stringify(ui.draft);
   ui.forwarding = [];
   ui.composeError = "";
-  if (replacing) ui.composeKey++; // a fresh panel for the new message; a first open keeps its opening animation
+  ui.composeKey++; // always a fresh panel (focus, busy state), even when reopened while the last one closes
   ui.composing = true;
+  return true;
 }
 
 // Why the panel couldn't send or save, for the panel to show: the engine's words for a refusal, else what to do.
@@ -297,9 +300,10 @@ export function discardDraft() {
 
 /** Resumes a saved draft. It stays a reply when the conversation has other messages. */
 export async function editDraft(m: Message) {
+  // (The attachments shown are the draft's own, and only once its panel actually opened.)
   const thread = data.thread?.id === m.threadId ? data.thread : null;
   const reply = thread?.messages.some((x) => !x.draft && x.id !== m.id);
-  await compose({
+  const opened = await compose({
     accountId: thread?.accountId ?? m.id.split("/")[0],
     to: addresses(m.to),
     cc: addresses(m.cc),
@@ -309,7 +313,7 @@ export async function editDraft(m: Message) {
     draftId: m.id,
     forwardOf: m.attachments.length ? m.id : undefined, // a saved forward keeps its attachments
   });
-  ui.forwarding = m.attachments;
+  if (opened) ui.forwarding = m.attachments;
 }
 
 // The message a reply or forward is about: the newest that isn't a draft of mine.
@@ -338,13 +342,14 @@ export const forward = (id: string) =>
   run(async () => {
     const thread = await fullThread(id);
     const last = lastSent(thread);
-    await compose({
+    const files = last.attachments.filter((a) => !a.inline); // signature logos stay behind with the HTML
+    const opened = await compose({
       accountId: thread.accountId,
       subject: prefixed("Fwd:", thread.subject),
       body: forwardBody(last, thread.subject),
-      forwardOf: last.attachments.length ? last.id : undefined,
+      forwardOf: files.length ? last.id : undefined,
     });
-    ui.forwarding = last.attachments;
+    if (opened) ui.forwarding = files;
   });
 
 /** Saves an attachment to Downloads and shows it in the file manager (the engine does both). */

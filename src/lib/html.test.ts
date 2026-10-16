@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameDoc, hasRemoteContent, QUOTE_SELECTOR } from "./html";
+import { frameDoc, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "./html";
 
 const csp = (doc: string) => doc.match(/Content-Security-Policy" content="([^"]*)"/)?.[1] ?? "";
 
@@ -17,12 +17,28 @@ describe("frameDoc", () => {
     expect(policy).toContain("script-src 'none'");
   });
 
-  it("puts the policy first, on a light page, and drops what could navigate the frame", () => {
-    const doc = frameDoc('<meta http-equiv="refresh" content="0;url=https://evil.example"><base href="https://evil.example/"><p>Hi</p>', false);
+  it("puts the policy first, on a light page, and defuses meta, base and link tags", () => {
+    const doc = frameDoc(
+      '<meta http-equiv="refresh" content="0;url=https://evil.example"><BASE href="https://evil.example/">' +
+        '<link x="rel=stylesheet>" rel=preconnect href="//t.example"><p>Hi</p>',
+      false,
+    );
     expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("<p>Hi</p>"));
-    expect(doc).not.toContain("refresh");
-    expect(doc).not.toContain("<base");
+    const body = doc.slice(doc.indexOf("<body>"));
+    expect(body).not.toMatch(/<(meta|base|link)\b/i); // WebKit preconnects for <link> despite the CSP
+    expect(csp(doc)).toContain("base-uri 'none'");
+    expect(csp(doc)).toContain("form-action 'none'");
     expect(doc).toContain("color-scheme: light");
+  });
+
+  it("keeps stylesheet links once remote content is allowed", () => {
+    expect(frameDoc('<link rel="stylesheet" href="https://x.example/a.css">', true)).toContain("<link");
+  });
+
+  it("gives protocol-relative URLs a scheme (srcdoc would resolve them against the app)", () => {
+    const doc = frameDoc('<img src="//x.example/a.png"><div style="background:url(//x.example/b.png)">', true);
+    expect(doc).toContain('src="https://x.example/a.png"');
+    expect(doc).toContain("url(https://x.example/b.png)");
   });
 
   it("hides quoted history unless shown", () => {
@@ -40,8 +56,29 @@ describe("hasRemoteContent", () => {
     expect(hasRemoteContent("<div style=\"background: url('http://x.example/a.png')\">")).toBe(true);
   });
 
+  it("spots srcset, poster, svg images, @import and protocol-relative sources", () => {
+    expect(hasRemoteContent('<img srcset="https://x.example/a.png 2x">')).toBe(true);
+    expect(hasRemoteContent('<video poster="http://x.example/p.png">')).toBe(true);
+    expect(hasRemoteContent('<svg><image href="https://x.example/i.png"/></svg>')).toBe(true);
+    expect(hasRemoteContent('<style>@import "https://x.example/a.css";</style>')).toBe(true);
+    expect(hasRemoteContent('<img src="//x.example/a.png">')).toBe(true);
+  });
+
   it("ignores data and cid images and plain links", () => {
     expect(hasRemoteContent('<img src="data:image/png;base64,AA=="><img src="cid:a@b">')).toBe(false);
     expect(hasRemoteContent('<a href="https://example.com">site</a>')).toBe(false);
+  });
+});
+
+describe("mailtoDraft", () => {
+  it("reads to, cc, subject and body", () => {
+    expect(mailtoDraft("mailto:maya@x?cc=sam@x&subject=Hi%20there&body=Line%201")).toEqual({
+      to: "maya@x", cc: "sam@x", subject: "Hi there", body: "Line 1",
+    });
+    expect(mailtoDraft("mailto:?to=lee@x").to).toBe("lee@x");
+  });
+
+  it("survives a malformed escape", () => {
+    expect(mailtoDraft("mailto:bad%zz@x").to).toBe("bad%zz@x");
   });
 });

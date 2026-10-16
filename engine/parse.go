@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"html"
 	"io"
+	"mime"
 	"regexp"
 	"slices"
 	"strings"
@@ -83,7 +84,7 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 			continue // an unnamed text part that's neither plain nor HTML (calendar data, say)
 		}
 		data, _ := io.ReadAll(part.Body)
-		p.Attachments = append(p.Attachments, Attachment{Name: cmp.Or(name, cid, "attachment"), Size: int64(len(data)),
+		p.Attachments = append(p.Attachments, Attachment{Name: cmp.Or(name, cid, "attachment"+extension(ct)), Size: int64(len(data)),
 			Type: cmp.Or(ct, "application/octet-stream"), CID: cid})
 		p.Files = append(p.Files, data)
 	}
@@ -140,4 +141,18 @@ func htmlToText(s string) string {
 		lines[i] = strings.Join(strings.Fields(line), " ")
 	}
 	return strings.TrimSpace(blankRuns.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
+}
+
+// extension names an unnamed part's file by its type: a bounced or forwarded message (message/rfc822) opens as .eml.
+func extension(contentType string) string {
+	switch contentType {
+	case "message/rfc822":
+		return ".eml"
+	case "message/delivery-status", "message/disposition-notification":
+		return ".txt"
+	}
+	if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+		return exts[0]
+	}
+	return ""
 }

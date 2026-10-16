@@ -118,8 +118,14 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 		if !strings.HasPrefix(d.ForwardOf, d.AccountID+"/") {
 			return Outgoing{}, problem("Forward from the account the message is in.")
 		}
-		if files, err = s.attachments(d.ForwardOf); err != nil {
+		all, err := s.attachments(d.ForwardOf)
+		if err != nil {
 			return Outgoing{}, err
+		}
+		for _, f := range all {
+			if !f.Inline { // images shown in the original's HTML (a signature logo) stay with it
+				files = append(files, f)
+			}
 		}
 	}
 	body := strings.ReplaceAll(strings.ReplaceAll(d.Body, "\r\n", "\n"), "\n", "\r\n")

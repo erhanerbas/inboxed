@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func pdfNamed(id, name string) []byte {
@@ -85,5 +86,31 @@ func TestForwardCarriesAttachments(t *testing.T) {
 	}
 	if _, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", ForwardOf: "a1/x"}, seedNow, false); err == nil {
 		t.Error("forwarding another account's mail")
+	}
+}
+
+func TestSafeNameStripsTricksAndFits(t *testing.T) {
+	if got := safeName("invoice‮fdp.command"); strings.ContainsRune(got, '‮') {
+		t.Errorf("right-to-left override kept: %q", got)
+	}
+	if got := safeName("a​b.pdf"); got != "ab.pdf" {
+		t.Errorf("zero-width space kept: %q", got)
+	}
+	long := safeName(strings.Repeat("é", 200) + ".pdf")
+	if len(long) > 200 || !strings.HasSuffix(long, ".pdf") || !utf8.ValidString(long) {
+		t.Errorf("long name: %d bytes, %q…", len(long), long[:10])
+	}
+}
+
+func TestForwardLeavesInlineImagesBehind(t *testing.T) {
+	s, inbox := trailStore(t)
+	add(t, s, inbox, 1, richMessage) // a PDF and an inline logo
+	out, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", Subject: "Fwd", ForwardOf: "acc/m1@example.com"}, seedNow, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := parseMessage(out.Raw, seedNow)
+	if len(p.Attachments) != 1 || p.Attachments[0].Name != "menu.pdf" {
+		t.Errorf("forwarded %+v", p.Attachments)
 	}
 }

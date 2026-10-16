@@ -52,7 +52,7 @@
 
 <form
   bind:this={form}
-  transition:rise
+  transition:rise|global
   aria-label="New message"
   onsubmit={(e) => e.preventDefault()}
   class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_60px_rgb(0_0_0/0.5)]"
