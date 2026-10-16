@@ -146,3 +146,67 @@ func TestThreadsByView(t *testing.T) {
 		t.Errorf("another account's mailbox: %v, want ErrNotFound", err)
 	}
 }
+
+func TestSetFlags(t *testing.T) {
+	s := newTestStore(t)
+	yes, no := true, false
+	if err := s.SetFlags("t2", nil, &yes); err != nil {
+		t.Fatal(err)
+	}
+	s.SetFlags("t3", nil, &no)
+	if got, _ := s.Threads("all", "starred", ""); !slices.Equal(ids(got), []string{"t2"}) {
+		t.Errorf("starred after flags: %v", ids(got))
+	}
+	s.SetFlags("t1", &no, nil)
+	if got := unreadByMailbox(t, s); got["a2-inbox"] != 1 || got["a2-projects-inboxed"] != 0 {
+		t.Errorf("reading t1 should lower both of its mailboxes: %v", got)
+	}
+	if err := s.SetFlags("nope", &yes, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing thread: %v", err)
+	}
+}
+
+func TestMove(t *testing.T) {
+	s := newTestStore(t)
+	boxes := func(id string) []string {
+		th, err := s.Thread(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(th.MailboxIDs)
+		return th.MailboxIDs
+	}
+	steps := []struct {
+		id, to string
+		want   []string
+	}{
+		{"t2", "archive", []string{"a1-archive", "a1-travel-2026"}},
+		{"t2", "inbox", []string{"a1-inbox", "a1-travel-2026"}},
+		{"t4", "trash", []string{"a2-trash"}},
+		{"t4", "inbox", []string{"a2-inbox"}},
+	}
+	for _, st := range steps {
+		if err := s.Move(st.id, st.to); err != nil {
+			t.Fatalf("%s → %s: %v", st.id, st.to, err)
+		}
+		if got := boxes(st.id); !slices.Equal(got, st.want) {
+			t.Errorf("%s → %s: %v, want %v", st.id, st.to, got, st.want)
+		}
+	}
+	if err := s.Move("t4", "nowhere"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("bad target: %v", err)
+	}
+	if err := s.Move("nope", "trash"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing thread: %v", err)
+	}
+}
+
+func TestMarkAllRead(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.MarkAllRead("all", "inbox"); err != nil {
+		t.Fatal(err)
+	}
+	if got := unreadByMailbox(t, s); got["a1-inbox"]+got["a2-inbox"] != 0 {
+		t.Errorf("inboxes still unread: %v", got)
+	}
+}

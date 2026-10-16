@@ -369,3 +369,66 @@ func ftsQuery(input string) string {
 	}
 	return strings.Join(terms, " ")
 }
+
+// SetFlags changes read and star state. A nil argument leaves that flag as it is.
+func (s *Store) SetFlags(id string, unread, starred *bool) error {
+	res, err := s.db.Exec(`UPDATE threads SET unread = COALESCE(?, unread), starred = COALESCE(?, starred) WHERE id = ?`,
+		unread, starred, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Move files a thread: "archive" takes it out of the inbox, "trash" out of everything, "inbox" undoes both.
+// User folders are kept, except by trash.
+func (s *Store) Move(id, to string) error {
+	leave, ok := map[string]string{
+		"archive": `role = 'inbox'`,
+		"trash":   `1`,
+		"inbox":   `role IN ('archive', 'trash')`,
+	}[to]
+	if !ok {
+		return fmt.Errorf("%w: can't move to %q", ErrInvalid, to)
+	}
+	var account string
+	err := s.db.QueryRow(`SELECT account_id FROM threads WHERE id = ?`, id).Scan(&account)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	var target string
+	err = s.db.QueryRow(`SELECT id FROM mailboxes WHERE account_id = ? AND role = ?`, account, to).Scan(&target)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: account %s has no %s mailbox", ErrInvalid, account, to)
+	} else if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM thread_mailboxes WHERE thread_id = ?
+		AND mailbox_id IN (SELECT id FROM mailboxes WHERE `+leave+`)`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, id, target); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkAllRead marks every thread in a sidebar entry as read (same convention as Threads).
+func (s *Store) MarkAllRead(accountID, key string) error {
+	where, args, err := s.filter(accountID, key)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE threads SET unread = 0 WHERE id IN (SELECT t.id FROM threads t WHERE `+where+`)`, args...)
+	return err
+}
