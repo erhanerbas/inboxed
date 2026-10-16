@@ -100,7 +100,7 @@ func addresses(h mail.Header, key string) []Address {
 	list, _ := h.AddressList(key)
 	out := []Address{}
 	for _, a := range list {
-		out = append(out, Address{Name: a.Name, Email: a.Address})
+		out = append(out, Address{Name: cmp.Or(a.Name, a.Address), Email: a.Address}) // a bare address shows as itself
 	}
 	return out
 }

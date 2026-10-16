@@ -52,10 +52,20 @@ async function loadList() {
   if (n === listRequest) data.list = list; // a newer request (fast typing in search) wins
 }
 
+// A thread that's gone (its draft was sent, it was deleted on another device) closes rather than reporting an error.
 async function loadThread() {
   const id = ui.threadId;
-  const thread = id ? await api<Thread>(`/threads/${encodeURIComponent(id)}`) : null;
-  if (ui.threadId === id) data.thread = thread;
+  let thread: Thread | null = null;
+  if (id) {
+    try {
+      thread = await api<Thread>(`/threads/${encodeURIComponent(id)}`);
+    } catch (err) {
+      if (!(err instanceof EngineError && err.status === 404)) throw err;
+    }
+  }
+  if (ui.threadId !== id) return;
+  data.thread = thread;
+  if (!thread) ui.threadId = null;
 }
 
 // After any change the engine is the source of truth, unread counts included.

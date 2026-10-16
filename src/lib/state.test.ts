@@ -19,6 +19,7 @@ const engine = vi.hoisted(() => {
     slow: false,
     reject: "" as string, // when set, POST /accounts fails with this 400 message
     refuse: "" as string, // when set, writes to this path fail with a 400 "the server said no"
+    gone: "" as string, // when set, GET /threads/<gone> is a 404
     emit: undefined as undefined | (() => void), // sends a change event, as the engine's stream would
   };
 });
@@ -36,6 +37,7 @@ vi.mock("./engine", () => {
     if (engine.fail) throw new Error("engine down");
     if (path === "/accounts" && init.method === "POST" && engine.reject) throw new EngineError(400, engine.reject);
     if (engine.refuse && path.startsWith(engine.refuse) && init.method) throw new EngineError(400, "the server said no");
+    if (engine.gone && path === `/threads/${engine.gone}`) throw new EngineError(404, "not found");
     engine.calls.push({ path, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body as string) : undefined });
     if (path.startsWith("/threads?") && engine.slow) return new Promise((resolve) => engine.lists.push(resolve));
     if (path.startsWith("/threads/") && !path.endsWith("/move")) return structuredClone(engine.thread);
@@ -56,7 +58,7 @@ vi.mock("./engine", () => {
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
-  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "" });
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "", gone: "" });
   engine.thread.unread = true;
   s = await import("./state.svelte");
   await s.start();
@@ -255,5 +257,16 @@ describe("live updates", () => {
     expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(1);
     await new Promise((r) => setTimeout(r, 1000));
     expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(2);
+  });
+});
+
+describe("an open thread that's gone", () => {
+  it("closes quietly on the next reload (sent draft, deleted on another device)", async () => {
+    await s.openThread("t1");
+    engine.gone = "t1";
+    await s.markAllRead("all", "inbox");
+    expect(s.ui.threadId).toBe(null);
+    expect(s.data.thread).toBe(null);
+    expect(s.ui.error).toBe("");
   });
 });
