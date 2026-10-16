@@ -1,8 +1,13 @@
-import { accounts, mailboxes, threads } from "./mock";
-import { threadsFor } from "./views";
+import { api, send } from "./engine";
+import type { Account, Mailbox, Thread, ThreadSummary } from "./types";
 
-/** All mail data. Phase 1 seeds it from mock.ts; Phase 2 loads it from the engine. */
-export const data = $state({ accounts, mailboxes, threads });
+/** Mail data, as the engine last reported it. */
+export const data = $state({
+  accounts: [] as Account[],
+  mailboxes: [] as Mailbox[],
+  list: [] as ThreadSummary[], // the selected sidebar entry, narrowed by the search query
+  thread: null as Thread | null, // the open conversation, with its messages
+});
 
 const SIDEBAR_KEY = "inboxed.sidebarCollapsed";
 function storedFlag(key: string): boolean {
@@ -23,7 +28,49 @@ export const ui = $state({
   draft: { to: "", subject: "" },
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
+  error: "", // shown by the status bar in +page.svelte
 });
+
+/** Runs engine work. A failure becomes a message with a way out; it never throws. */
+async function run(work: () => Promise<unknown>) {
+  try {
+    await work();
+    ui.error = "";
+  } catch (err) {
+    console.error(err);
+    ui.error = "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.";
+  }
+}
+
+let listRequest = 0;
+async function loadList() {
+  const n = ++listRequest;
+  const params = new URLSearchParams({ account: ui.accountId, key: ui.mailboxKey, q: ui.query });
+  const list = await api<ThreadSummary[]>(`/threads?${params}`);
+  if (n === listRequest) data.list = list; // a newer request (fast typing in search) wins
+}
+
+async function loadThread() {
+  const id = ui.threadId;
+  const thread = id ? await api<Thread>(`/threads/${id}`) : null;
+  if (ui.threadId === id) data.thread = thread;
+}
+
+// After any change the engine is the source of truth, unread counts included.
+async function reload() {
+  const [mailboxes] = await Promise.all([api<Mailbox[]>("/mailboxes"), loadList(), loadThread()]);
+  data.mailboxes = mailboxes;
+}
+
+/** First load; also the status bar's "Try again". */
+export const start = () =>
+  run(async () => {
+    data.accounts = await api<Account[]>("/accounts");
+    await reload();
+  });
+
+/** Reloads the list for the current view and query (+page.svelte runs this whenever they change). */
+export const showList = () => run(loadList);
 
 export function selectAccount(id: string) {
   ui.accountId = id;
@@ -46,61 +93,45 @@ export function toggleSidebar() {
   }
 }
 
-const find = (id: string) => data.threads.find((t) => t.id === id);
-
-// ponytail: recounts every mailbox on each change; fine for mock data, the engine supplies counts in Phase 2.
-function recount() {
-  for (const m of data.mailboxes) m.unread = data.threads.filter((t) => t.unread && t.mailboxIds.includes(m.id)).length;
-}
-
-export function setUnread(id: string, unread: boolean) {
-  const thread = find(id);
-  if (!thread || thread.unread === unread) return;
-  thread.unread = unread;
-  recount();
+// Flips the flags here first so the unread dot and the star respond instantly, then saves and reloads.
+async function setFlags(id: string, flags: { unread?: boolean; starred?: boolean }) {
+  for (const t of [...data.list, data.thread]) if (t?.id === id) Object.assign(t, flags);
+  await send(`/threads/${id}`, "PATCH", flags);
+  await reload();
 }
 
 export function openThread(id: string) {
   ui.threadId = id;
-  setUnread(id, false);
+  return run(async () => {
+    await loadThread();
+    if (data.thread?.id === id && data.thread.unread) await setFlags(id, { unread: false });
+  });
 }
+
+export const setUnread = (id: string, unread: boolean) => run(() => setFlags(id, { unread }));
 
 export function toggleStar(id: string) {
-  const thread = find(id);
-  if (thread) thread.starred = !thread.starred;
+  const t = data.list.find((t) => t.id === id) ?? (data.thread?.id === id ? data.thread : undefined);
+  return run(() => setFlags(id, { starred: !t?.starred }));
 }
 
-/** Marks every thread in a sidebar entry as read (same accountId/key convention as `ui`). */
-export function markAllRead(accountId: string, key: string) {
-  for (const t of threadsFor(data.threads, data.mailboxes, accountId, key)) t.unread = false;
-  recount();
+export const markAllRead = (accountId: string, key: string) =>
+  run(async () => {
+    await send("/read-all", "POST", { account: accountId, key });
+    await reload();
+  });
+
+function move(id: string, to: "archive" | "trash" | "inbox") {
+  return run(async () => {
+    await send(`/threads/${id}/move`, "POST", { to });
+    if (to !== "inbox" && ui.threadId === id) ui.threadId = null;
+    await reload();
+  });
 }
 
-/** Re-files a thread: drops it from its inbox (archive) or from everything (trash) and adds the role mailbox. */
-function fileInto(id: string, role: "archive" | "trash") {
-  const thread = find(id);
-  const target = data.mailboxes.find((m) => m.accountId === thread?.accountId && m.role === role);
-  if (!thread || !target) return;
-  const inbox = data.mailboxes.find((m) => m.accountId === thread.accountId && m.role === "inbox")?.id;
-  const keep = role === "trash" ? [] : thread.mailboxIds.filter((m) => m !== inbox);
-  thread.mailboxIds = [...keep, target.id];
-  if (ui.threadId === id) ui.threadId = null;
-  recount();
-}
-
-export const archive = (id: string) => fileInto(id, "archive");
-export const trash = (id: string) => fileInto(id, "trash");
-
-/** Undoes archive and trash: back to the account's inbox, other folders kept. */
-export function moveToInbox(id: string) {
-  const thread = find(id);
-  const boxes = data.mailboxes.filter((m) => m.accountId === thread?.accountId);
-  const inbox = boxes.find((m) => m.role === "inbox");
-  if (!thread || !inbox) return;
-  const filedAway = boxes.filter((m) => m.role === "archive" || m.role === "trash").map((m) => m.id);
-  thread.mailboxIds = [...thread.mailboxIds.filter((m) => !filedAway.includes(m) && m !== inbox.id), inbox.id];
-  recount();
-}
+export const archive = (id: string) => move(id, "archive");
+export const trash = (id: string) => move(id, "trash");
+export const moveToInbox = (id: string) => move(id, "inbox");
 
 export function compose(draft = { to: "", subject: "" }) {
   ui.draft = draft;
@@ -109,17 +140,19 @@ export function compose(draft = { to: "", subject: "" }) {
 
 const prefixed = (prefix: string, subject: string) =>
   subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
+const fullThread = async (id: string) => (data.thread?.id === id ? data.thread : api<Thread>(`/threads/${id}`));
 
-export function reply(id: string, all = false) {
-  const thread = find(id);
-  if (!thread) return;
-  const me = data.accounts.find((a) => a.id === thread.accountId)?.email;
-  const last = thread.messages[thread.messages.length - 1];
-  const to = all ? thread.participants : last.from.email === me ? last.to : [last.from];
-  compose({ to: to.map((a) => a.email).join(", "), subject: prefixed("Re:", thread.subject) });
-}
+export const reply = (id: string, all = false) =>
+  run(async () => {
+    const thread = await fullThread(id);
+    const me = data.accounts.find((a) => a.id === thread.accountId)?.email;
+    const last = thread.messages[thread.messages.length - 1];
+    const to = all ? thread.participants : last.from.email === me ? last.to : [last.from];
+    compose({ to: to.map((a) => a.email).join(", "), subject: prefixed("Re:", thread.subject) });
+  });
 
-export function forward(id: string) {
-  const thread = find(id);
-  if (thread) compose({ to: "", subject: prefixed("Fwd:", thread.subject) });
-}
+export const forward = (id: string) =>
+  run(async () => {
+    const thread = await fullThread(id);
+    compose({ to: "", subject: prefixed("Fwd:", thread.subject) });
+  });

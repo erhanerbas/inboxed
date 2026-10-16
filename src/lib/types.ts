@@ -32,7 +32,8 @@ export type Message = {
   attachments: { name: string; size: number }[];
 };
 
-export type Thread = {
+/** A row in a list: everything but the messages. */
+export type ThreadSummary = {
   id: string;
   accountId: string;
   mailboxIds: string[];
@@ -43,5 +44,7 @@ export type Thread = {
   unread: boolean;
   starred: boolean;
   hasAttachments: boolean;
-  messages: Message[]; // oldest first
 };
+
+/** An open conversation. */
+export type Thread = ThreadSummary & { messages: Message[] }; // oldest first

@@ -1,79 +1,115 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Fresh copy of the mock-seeded state for every test.
+// A fake engine: records every call, serves one thread, and can be told to fail or to answer slowly.
+const engine = vi.hoisted(() => {
+  const thread = {
+    id: "t1", accountId: "a2", mailboxIds: ["a2-inbox"], subject: "Inboxed design review", snippet: "Done.",
+    participants: [{ name: "Maya Chen", email: "maya@work.example" }, { name: "Daniel Okafor", email: "daniel@work.example" }],
+    lastDate: "2026-10-15T13:25:00.000Z", unread: true, starred: false, hasAttachments: false,
+    messages: [
+      { id: "m1", threadId: "t1", from: { name: "You", email: "you@work.example" }, to: [{ name: "Maya Chen", email: "maya@work.example" }], cc: [], date: "2026-10-14T10:00:00.000Z", body: "Hi", attachments: [] },
+      { id: "m2", threadId: "t1", from: { name: "Maya Chen", email: "maya@work.example" }, to: [{ name: "You", email: "you@work.example" }], cc: [], date: "2026-10-15T13:25:00.000Z", body: "Done.", attachments: [] },
+    ],
+  };
+  return {
+    thread,
+    calls: [] as { path: string; method: string; body?: unknown }[],
+    fail: false,
+    lists: [] as ((v: unknown) => void)[], // pending /threads? responses when `slow` is set
+    slow: false,
+  };
+});
+
+vi.mock("./engine", () => {
+  const api = async (path: string, init: RequestInit = {}) => {
+    if (engine.fail) throw new Error("engine down");
+    engine.calls.push({ path, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body as string) : undefined });
+    if (path.startsWith("/threads?") && engine.slow) return new Promise((resolve) => engine.lists.push(resolve));
+    if (path.startsWith("/threads/") && !path.endsWith("/move")) return structuredClone(engine.thread);
+    if (path === "/accounts") return [{ id: "a2", name: "Work", email: "you@work.example", provider: "outlook", color: "" }];
+    return init.method && init.method !== "GET" ? undefined : [];
+  };
+  return { api, send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }) };
+});
+
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [] });
+  engine.thread.unread = true;
   s = await import("./state.svelte");
+  await s.start();
+  engine.calls.length = 0;
 });
 
-const unread = (id: string) => s.data.mailboxes.find((m) => m.id === id)!.unread;
-const thread = (id: string) => s.data.threads.find((t) => t.id === id)!;
+const writes = () => engine.calls.filter((c) => c.method !== "GET");
 
-describe("read state", () => {
-  it("opening an unread thread lowers its mailbox counts once", () => {
-    expect(unread("a2-inbox")).toBe(2);
-    s.openThread("t1");
-    s.openThread("t1");
-    expect(unread("a2-inbox")).toBe(1);
-    expect(unread("a2-projects-inboxed")).toBe(0);
+describe("opening", () => {
+  it("loads the thread and marks it read on the engine", async () => {
+    await s.openThread("t1");
+    expect(s.data.thread?.id).toBe("t1");
+    expect(writes()).toEqual([{ path: "/threads/t1", method: "PATCH", body: { unread: false } }]);
+    expect(engine.calls.some((c) => c.path === "/mailboxes")).toBe(true); // counts come back from the engine
   });
 
-  it("marking a thread unread raises the counts again", () => {
-    s.setUnread("t3", true);
-    expect(unread("a1-inbox")).toBe(2);
-  });
-
-  it("mark all as read clears every thread in that view", () => {
-    s.markAllRead("all", "inbox");
-    expect(unread("a1-inbox") + unread("a2-inbox")).toBe(0);
-    expect(thread("t2").unread).toBe(false);
+  it("doesn't write when the thread is already read", async () => {
+    engine.thread.unread = false;
+    await s.openThread("t1");
+    expect(writes()).toEqual([]);
   });
 });
 
 describe("filing", () => {
-  it("archive moves a thread from the inbox to its account's archive", () => {
-    s.openThread("t2");
-    s.archive("t2");
-    expect(thread("t2").mailboxIds).toEqual(["a1-travel-2026", "a1-archive"]);
+  it("archive tells the engine and closes the open thread", async () => {
+    await s.openThread("t1");
+    engine.calls.length = 0;
+    await s.archive("t1");
+    expect(writes()).toEqual([{ path: "/threads/t1/move", method: "POST", body: { to: "archive" } }]);
     expect(s.ui.threadId).toBe(null);
   });
 
-  it("move to trash keeps only the trash mailbox", () => {
-    s.trash("t4");
-    expect(thread("t4").mailboxIds).toEqual(["a2-trash"]);
-    expect(unread("a2-inbox")).toBe(1);
+  it("filing another thread leaves the open one open", async () => {
+    await s.openThread("t1");
+    await s.trash("t9");
+    expect(s.ui.threadId).toBe("t1");
   });
-});
 
-describe("restoring", () => {
-  it("move to inbox undoes archive and trash", () => {
-    s.archive("t2");
-    s.moveToInbox("t2");
-    expect(thread("t2").mailboxIds).toEqual(["a1-travel-2026", "a1-inbox"]);
-    s.trash("t4");
-    s.moveToInbox("t4");
-    expect(thread("t4").mailboxIds).toEqual(["a2-inbox"]);
-    expect(unread("a2-inbox")).toBe(2);
+  it("mark all as read sends the view", async () => {
+    await s.markAllRead("all", "inbox");
+    expect(writes()).toEqual([{ path: "/read-all", method: "POST", body: { account: "all", key: "inbox" } }]);
   });
 });
 
 describe("drafts", () => {
-  it("reply addresses the last sender and prefixes the subject once", () => {
-    s.reply("t1");
-    expect(s.ui.composing).toBe(true);
-    expect(s.ui.draft).toEqual({ to: "maya@work.example", subject: "Re: Inboxed design review: sidebar and thread view" });
-    s.reply("t5");
-    expect(s.ui.draft.subject).toBe("Re: Fwd: Your receipt from Example Store for order #A-2026-10-12-000123 (3 items, shipped in two separate packages)");
-  });
-
-  it("reply all addresses everyone except you", () => {
-    s.reply("t1", true);
+  it("reply goes to the last sender, reply all to everyone but you", async () => {
+    await s.reply("t1");
+    expect(s.ui.draft).toEqual({ to: "maya@work.example", subject: "Re: Inboxed design review" });
+    await s.reply("t1", true);
     expect(s.ui.draft.to).toBe("maya@work.example, daniel@work.example");
+    await s.forward("t1");
+    expect(s.ui.draft).toEqual({ to: "", subject: "Fwd: Inboxed design review" });
+  });
+});
+
+describe("failures and races", () => {
+  it("a failed call leaves a message with a way to recover, and success clears it", async () => {
+    engine.fail = true;
+    await s.archive("t1");
+    expect(s.ui.error).toMatch(/try again/i);
+    engine.fail = false;
+    await s.start();
+    expect(s.ui.error).toBe("");
   });
 
-  it("forward leaves the recipient empty", () => {
-    s.forward("t2");
-    expect(s.ui.draft).toEqual({ to: "", subject: "Fwd: Your flight to Lisbon is confirmed" });
+  it("a stale list response never replaces a newer one", async () => {
+    engine.slow = true;
+    s.ui.query = "old";
+    const first = s.showList();
+    s.ui.query = "new";
+    const second = s.showList();
+    engine.lists[1]([{ id: "new" }]);
+    engine.lists[0]([{ id: "old" }]);
+    await Promise.all([first, second]);
+    expect(s.data.list.map((t) => t.id)).toEqual(["new"]);
   });
 });

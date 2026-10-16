@@ -12,7 +12,7 @@ import {
   toggleStar,
   trash,
 } from "./state.svelte";
-import type { Thread } from "./types";
+import type { ThreadSummary as Thread } from "./types";
 
 export type MenuEntry = { text: string; action: () => void; accelerator?: string; enabled?: boolean } | "separator";
 

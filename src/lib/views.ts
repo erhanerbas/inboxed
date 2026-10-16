@@ -1,4 +1,4 @@
-import type { Mailbox, MailboxRole, Thread } from "./types";
+import type { Mailbox, MailboxRole } from "./types";
 
 export const ROLES: { role: NonNullable<MailboxRole>; label: string }[] = [
   { role: "inbox", label: "Inbox" },
@@ -24,29 +24,4 @@ export function visibleMailboxes(all: Mailbox[], accountId: string): Mailbox[] {
     parentId: null,
     unread: all.filter((m) => m.role === role).reduce((sum, m) => sum + m.unread, 0),
   }));
-}
-
-/** Threads in the selected sidebar entry matching the search query, newest first. */
-export function threadsFor(
-  threads: Thread[],
-  mailboxes: Mailbox[],
-  accountId: string,
-  key: string,
-  query = "",
-): Thread[] {
-  const role = accountId === "all" ? key : mailboxes.find((m) => m.id === key)?.role;
-  const ids = accountId === "all" ? mailboxes.filter((m) => m.role === key).map((m) => m.id) : [key];
-  // Starred is a flag, not a folder: star a thread and it shows up there, wherever it's filed.
-  const inView = (t: Thread) =>
-    role === "starred"
-      ? t.starred && (accountId === "all" || t.accountId === accountId)
-      : t.mailboxIds.some((id) => ids.includes(id));
-  const q = query.trim().toLowerCase();
-  const matches = (t: Thread) =>
-    [t.subject, t.snippet, ...t.participants.map((p) => `${p.name} ${p.email}`)].some((s) =>
-      s.toLowerCase().includes(q),
-    );
-  return threads
-    .filter((t) => inView(t) && (!q || matches(t)))
-    .sort((a, b) => b.lastDate.localeCompare(a.lastDate));
 }
