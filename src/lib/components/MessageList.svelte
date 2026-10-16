@@ -4,10 +4,10 @@
   import { contextmenu } from "$lib/contextmenu";
   import { threadMenu } from "$lib/menus";
   import { data, ui, openThread } from "$lib/state.svelte";
-  import { threadsFor, visibleMailboxes } from "$lib/views";
+  import { visibleMailboxes } from "$lib/views";
   import { formatDate } from "$lib/format";
 
-  const list = $derived(threadsFor(data.threads, data.mailboxes, ui.accountId, ui.mailboxKey, ui.query));
+  const list = $derived(data.list); // already filtered and searched by the engine
   const title = $derived(
     visibleMailboxes(data.mailboxes, ui.accountId).find((m) => m.id === ui.mailboxKey)?.name ?? "",
   );

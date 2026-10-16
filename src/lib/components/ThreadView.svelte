@@ -31,7 +31,8 @@
     ],
   ];
 
-  const thread = $derived(data.threads.find((t) => t.id === ui.threadId));
+  // data.thread can briefly be the previous conversation while the next one loads.
+  const thread = $derived(data.thread?.id === ui.threadId ? data.thread : null);
   // +page.svelte re-creates this component per thread, so both sets start empty.
   const expanded = new SvelteSet<string>();
   const quotesShown = new SvelteSet<string>();
@@ -146,7 +147,7 @@
       </div>
     </div>
   </article>
-{:else}
+{:else if !ui.threadId}
   <div data-tauri-drag-region class="grid h-full place-items-center text-ink-muted">
     <div class="flex flex-col items-center gap-2">
       <Icon icon={Mail01Icon} size={28} />

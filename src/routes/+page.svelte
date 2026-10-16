@@ -7,9 +7,17 @@
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ThreadView from "$lib/components/ThreadView.svelte";
   import { runShortcut } from "$lib/menus";
-  import { compose, data, toggleSidebar, ui } from "$lib/state.svelte";
+  import { compose, data, showList, start, toggleSidebar, ui } from "$lib/state.svelte";
+  import { onMount } from "svelte";
 
   const isMac = typeof document !== "undefined" && document.documentElement.dataset.platform === "mac";
+
+  onMount(start);
+  // The list follows the view and the search query.
+  $effect(() => {
+    void [ui.accountId, ui.mailboxKey, ui.query];
+    showList();
+  });
 
   function onkeydown(e: KeyboardEvent) {
     const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -26,7 +34,8 @@
     }
     // Thread commands (reply, archive, ⌫ …) never fire while typing or inside compose and dialogs.
     if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable], form, dialog")) return;
-    if (runShortcut(e, data.threads.find((t) => t.id === ui.threadId))) e.preventDefault();
+    const selected = data.list.find((t) => t.id === ui.threadId) ?? data.thread ?? undefined;
+    if (runShortcut(e, selected)) e.preventDefault();
   }
 
   // The webview's own menu (Reload, Inspect) doesn't belong in a shipped app. Text you can select keeps
@@ -72,3 +81,15 @@
 {#if ui.addingAccount}
   <AddAccount />
 {/if}
+
+<!-- Always rendered, so screen readers announce the message when it appears. -->
+<div role="status" class="pointer-events-none fixed inset-x-0 bottom-5 z-30 flex justify-center px-4">
+  {#if ui.error}
+    <p
+      class="pointer-events-auto flex max-w-xl items-center gap-4 rounded-xl border border-line bg-raised py-2 pr-2 pl-4 shadow-[0_12px_32px_rgb(0_0_0/0.4)]"
+    >
+      {ui.error}
+      <button class="btn-primary shrink-0" onclick={start}>Try again</button>
+    </p>
+  {/if}
+</div>
