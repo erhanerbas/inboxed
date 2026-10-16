@@ -106,10 +106,10 @@ describe("filing", () => {
 describe("composing", () => {
   it("reply goes to the last sender, reply all to everyone but you", async () => {
     await s.reply("t1");
-    expect(s.ui.draft).toMatchObject({ accountId: "a2", threadId: "t1", to: "maya@work.example", subject: "Re: Inboxed design review" });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", threadId: "t1", to: '"Maya Chen" <maya@work.example>', subject: "Re: Inboxed design review" });
     expect(s.ui.draft.body).toMatch(/Maya Chen wrote:\n> Done\.$/);
     await s.reply("t1", true);
-    expect(s.ui.draft.to).toBe("maya@work.example, daniel@work.example");
+    expect(s.ui.draft.to).toBe('"Maya Chen" <maya@work.example>, "Daniel Okafor" <daniel@work.example>');
     await s.forward("t1");
     expect(s.ui.draft).toMatchObject({ to: "", subject: "Fwd: Inboxed design review" });
     expect(s.ui.draft.threadId).toBeUndefined(); // a forward starts a new conversation
@@ -152,6 +152,43 @@ describe("composing", () => {
     expect(s.ui.draft.body).toBe("Half a thought");
   });
 
+  it("opening another message while the panel has changes saves them first", async () => {
+    s.compose();
+    s.ui.draft.body = "A long thought";
+    await s.compose({ to: "sam@x" });
+    expect(writes()).toEqual([{ path: "/drafts", method: "PUT", body: expect.objectContaining({ body: "A long thought" }) }]);
+    expect(s.ui.draft.to).toBe("sam@x");
+  });
+
+  it("if those changes can't be saved, the open panel stays as it was", async () => {
+    s.compose();
+    s.ui.draft.body = "Keep me";
+    engine.refuse = "/drafts";
+    await s.compose({ to: "sam@x" });
+    expect(s.ui.draft.body).toBe("Keep me");
+    expect(s.ui.composeError).toBe("the server said no");
+  });
+
+  it("closing with no account to save to keeps the text", async () => {
+    s.compose();
+    s.ui.draft.accountId = "";
+    s.ui.draft.body = "Nowhere to go";
+    expect(await s.closeCompose()).toMatch(/Add an account/);
+    expect(s.ui.composing).toBe(true);
+  });
+
+  it("reply answers the last message that isn't a draft", async () => {
+    const mine = { ...engine.thread.messages[0], id: "m3", date: "2026-10-16T09:00:00.000Z", body: "Draft text", draft: true };
+    engine.thread.messages.push(mine);
+    try {
+      await s.reply("t1");
+      expect(s.ui.draft.to).toBe('"Maya Chen" <maya@work.example>');
+      expect(s.ui.draft.body).toMatch(/> Done\.$/);
+    } finally {
+      engine.thread.messages.pop();
+    }
+  });
+
   it("discard deletes the saved draft", async () => {
     s.compose({ draftId: "a2/x@y" });
     await s.discardDraft();
@@ -162,7 +199,7 @@ describe("composing", () => {
   it("edit draft resumes it in the panel", async () => {
     await s.openThread("t1");
     s.editDraft({ ...engine.thread.messages[1], subject: "Re: Inboxed design review", draft: true });
-    expect(s.ui.draft).toMatchObject({ accountId: "a2", draftId: "m2", threadId: "t1", to: "you@work.example", body: "Done." });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", draftId: "m2", threadId: "t1", to: '"You" <you@work.example>', body: "Done." });
     expect(s.ui.composing).toBe(true);
   });
 });

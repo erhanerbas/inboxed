@@ -1,5 +1,5 @@
 import { api, EngineError, follow, send } from "./engine";
-import { forwardBody, replyQuote } from "./format";
+import { addresses, forwardBody, replyQuote } from "./format";
 import type { Account, AccountSettings, Draft, Mailbox, Message, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
@@ -27,6 +27,8 @@ export const ui = $state({
   query: "",
   composing: false,
   draft: { accountId: "", to: "", cc: "", subject: "", body: "" } as Draft,
+  composeError: "", // why the compose panel couldn't send or save; shown in the panel
+  composeKey: 0, // a new message re-mounts the panel (focus, state)
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
   error: "", // shown by the status bar in +page.svelte
@@ -231,18 +233,23 @@ export const senders = () => data.accounts.filter((a) => a.provider === "imap");
 
 let pristine = ""; // the draft as the panel opened, so closing an untouched one saves nothing
 
-export function compose(draft: Partial<Draft> = {}) {
+/** Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was. */
+export async function compose(draft: Partial<Draft> = {}) {
+  if (ui.composing && (await closeCompose())) return;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
   pristine = JSON.stringify(ui.draft);
+  ui.composeError = "";
+  ui.composeKey++;
   ui.composing = true;
 }
 
-// A refusal comes back as text for the panel; anything else is the engine being unreachable.
+// Why the panel couldn't send or save, for the panel to show: the engine's words for a refusal, else what to do.
 function failure(err: unknown): string {
-  if (err instanceof EngineError && err.status === 400) return err.message;
+  if (err instanceof EngineError && err.status === 400) return (ui.composeError = err.message);
+  if (err instanceof EngineError && err.status === 404) return (ui.composeError = "That account was removed. Choose another one.");
   console.error(err);
-  return "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.";
+  return (ui.composeError = "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.");
 }
 
 /** Sends the open draft. Resolves to null once sent (the panel closes), else to the reason, with the panel open. */
@@ -261,7 +268,8 @@ export async function sendDraft(): Promise<string | null> {
 export async function closeCompose(): Promise<string | null> {
   const d = ui.draft;
   const typed = d.to || d.cc || d.subject || d.body.trim();
-  if (typed && d.accountId && JSON.stringify(d) !== pristine) {
+  if (typed && JSON.stringify(d) !== pristine) {
+    if (!d.accountId) return (ui.composeError = "Add an account to save this draft, or discard it.");
     try {
       await send("/drafts", "PUT", d);
     } catch (err) {
@@ -285,19 +293,22 @@ export function discardDraft() {
 }
 
 /** Resumes a saved draft. It stays a reply when the conversation has other messages. */
-export function editDraft(m: Message) {
+export async function editDraft(m: Message) {
   const thread = data.thread?.id === m.threadId ? data.thread : null;
   const reply = thread?.messages.some((x) => !x.draft && x.id !== m.id);
-  compose({
+  await compose({
     accountId: thread?.accountId ?? m.id.split("/")[0],
-    to: m.to.map((a) => a.email).join(", "),
-    cc: m.cc.map((a) => a.email).join(", "),
+    to: addresses(m.to),
+    cc: addresses(m.cc),
     subject: m.subject,
     body: m.body,
     threadId: reply ? m.threadId : undefined,
     draftId: m.id,
   });
 }
+
+// The message a reply or forward is about: the newest that isn't a draft of mine.
+const lastSent = (t: Thread) => t.messages.findLast((m) => !m.draft) ?? t.messages[t.messages.length - 1];
 
 const prefixed = (prefix: string, subject: string) =>
   subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
@@ -307,12 +318,12 @@ export const reply = (id: string, all = false) =>
   run(async () => {
     const thread = await fullThread(id);
     const me = data.accounts.find((a) => a.id === thread.accountId)?.email;
-    const last = thread.messages[thread.messages.length - 1];
+    const last = lastSent(thread);
     const to = all ? thread.participants : last.from.email === me ? last.to : [last.from];
-    compose({
+    await compose({
       accountId: thread.accountId,
       threadId: thread.id,
-      to: to.map((a) => a.email).join(", "),
+      to: addresses(to),
       subject: prefixed("Re:", thread.subject),
       body: replyQuote(last),
     });
@@ -321,6 +332,6 @@ export const reply = (id: string, all = false) =>
 export const forward = (id: string) =>
   run(async () => {
     const thread = await fullThread(id);
-    const last = thread.messages[thread.messages.length - 1];
-    compose({ accountId: thread.accountId, subject: prefixed("Fwd:", thread.subject), body: forwardBody(last, thread.subject) });
+    const last = lastSent(thread);
+    await compose({ accountId: thread.accountId, subject: prefixed("Fwd:", thread.subject), body: forwardBody(last, thread.subject) });
   });

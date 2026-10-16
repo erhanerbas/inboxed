@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forwardBody, formatDate, formatSize, replyQuote } from "./format";
+import { addresses, forwardBody, formatDate, formatSize, replyQuote } from "./format";
 import type { Message } from "./types";
 
 // Thursday 15 October 2026, 14:00 local time.
@@ -45,5 +45,13 @@ describe("forwardBody", () => {
     expect(f).toContain("Subject: Dinner plans");
     expect(f).toContain("To: You <you@example.com>");
     expect(f.endsWith("Are you free?\n\nSaturday works.")).toBe(true);
+  });
+});
+
+describe("addresses", () => {
+  it("keeps names, quoted so commas in them can't split an address", () => {
+    expect(addresses([{ name: "Chen, Maya", email: "maya@x" }, { name: "sam@x", email: "sam@x" }, { name: "", email: "lee@x" }])).toBe(
+      '"Chen, Maya" <maya@x>, sam@x, lee@x',
+    );
   });
 });

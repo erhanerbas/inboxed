@@ -42,3 +42,8 @@ export function forwardBody(m: Message, subject: string, locale?: string): strin
     m.body,
   ].join("\n");
 }
+
+/** Addresses as the To and Cc fields take them. Names are quoted, so one with a comma can't split an address. */
+export function addresses(list: Address[]): string {
+  return list.map((a) => (a.name && a.name !== a.email ? `"${a.name.replace(/["\\]/g, "\\$&")}" <${a.email}>` : a.email)).join(", ");
+}

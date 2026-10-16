@@ -77,7 +77,8 @@
 </div>
 
 {#if ui.composing}
-  <Compose />
+  <!-- A new message re-mounts the panel, so focus and its state start fresh. -->
+  {#key ui.composeKey}<Compose />{/key}
 {/if}
 {#if ui.addingAccount}
   <AddAccount />

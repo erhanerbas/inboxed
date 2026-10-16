@@ -9,7 +9,6 @@
   let to = $state<HTMLInputElement>();
   let body = $state<HTMLTextAreaElement>();
   let busy = $state<"" | "sending" | "saving">("");
-  let error = $state("");
   const from = $derived(senders());
   const isMac = navigator.platform.startsWith("Mac");
 
@@ -21,11 +20,11 @@
     } else to?.focus();
   });
 
-  async function send(e: SubmitEvent) {
-    e.preventDefault();
-    if (busy) return;
+  // Only the Send button and ⌘Enter send: the panel isn't a submitting form, so Enter in a field never does.
+  async function send() {
+    if (busy || !from.length) return;
     busy = "sending";
-    error = (await sendDraft()) ?? "";
+    await sendDraft();
     busy = "";
   }
 
@@ -33,7 +32,7 @@
   async function close() {
     if (busy) return;
     busy = "saving";
-    error = (await closeCompose()) ?? "";
+    await closeCompose();
     busy = "";
   }
 </script>
@@ -42,10 +41,10 @@
      ⌘Enter (Ctrl+Enter elsewhere) sends while typing in it. -->
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !ui.addingAccount) close();
+    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !ui.addingAccount && !ui.removingAccount) close();
     if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey) && form?.contains(document.activeElement)) {
       e.preventDefault();
-      form.requestSubmit();
+      send();
     }
   }}
 />
@@ -54,7 +53,7 @@
   bind:this={form}
   transition:rise
   aria-label="New message"
-  onsubmit={send}
+  onsubmit={(e) => e.preventDefault()}
   class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_60px_rgb(0_0_0/0.5)]"
 >
   <header class="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
@@ -89,16 +88,16 @@
     class="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-read outline-none"
   ></textarea>
 
-  {#if error}
-    <p role="alert" class="mx-3 mb-2 rounded-lg bg-panel px-3 py-2 wrap-anywhere">{error}</p>
+  {#if ui.composeError}
+    <p role="alert" class="mx-3 mb-2 rounded-lg bg-panel px-3 py-2 wrap-anywhere">{ui.composeError}</p>
   {/if}
   <footer class="flex shrink-0 items-center justify-between border-t border-line px-3 py-2">
-    <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" onclick={discardDraft}>
+    <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" disabled={!!busy} onclick={discardDraft}>
       <Icon icon={Delete02Icon} size={16} />
     </button>
     <span class="flex items-center gap-3">
       {#if busy === "saving"}<span class="text-caption text-ink-muted">Saving draft…</span>{/if}
-      <button class="btn-primary" disabled={!from.length || !!busy} title="Send ({isMac ? '⌘' : 'Ctrl+'}Enter)">
+      <button type="button" class="btn-primary" disabled={!from.length || !!busy} title="Send ({isMac ? '⌘' : 'Ctrl+'}Enter)" onclick={send}>
         {busy === "sending" ? "Sending…" : "Send"}
       </button>
     </span>
