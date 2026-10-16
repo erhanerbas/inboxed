@@ -87,6 +87,22 @@ var migrations = []string{
 	);`,
 	// Deleting messages (removing an account) cascades through message_locations by message_id.
 	`CREATE INDEX message_locations_message ON message_locations(message_id);`,
+	`ALTER TABLE message_locations ADD COLUMN seen INTEGER NOT NULL DEFAULT 1;
+	ALTER TABLE message_locations ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0;
+	-- The folder's last STATUS (uidvalidity/messages/uidnext/unseen). Unchanged means there's nothing to sync there.
+	ALTER TABLE mailboxes ADD COLUMN status TEXT NOT NULL DEFAULT '';
+	-- Local actions on IMAP accounts waiting to reach the server, oldest first.
+	CREATE TABLE pending_changes (
+		id INTEGER PRIMARY KEY,
+		account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+		thread_id TEXT NOT NULL, -- no foreign key: the thread may be gone by the time the change is sent
+		kind TEXT NOT NULL,      -- 'seen', 'flagged' or 'move'
+		value TEXT NOT NULL,     -- '1'/'0', or archive|trash|inbox
+		attempts INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX pending_changes_thread ON pending_changes(thread_id);`,
+	// The folder's HIGHESTMODSEQ when last synced (CONDSTORE servers): flag changes since then are all that's fetched.
+	`ALTER TABLE mailboxes ADD COLUMN modseq INTEGER NOT NULL DEFAULT 0;`,
 }
 
 type Store struct{ db *sql.DB }
@@ -403,9 +419,15 @@ func ftsQuery(input string) string {
 	return strings.Join(terms, " ")
 }
 
-// SetFlags changes read and star state. A nil argument leaves that flag as it is.
+// SetFlags changes read and star state. A nil argument leaves that flag as it is. On IMAP accounts the change is
+// also queued for the server.
 func (s *Store) SetFlags(id string, unread, starred *bool) error {
-	res, err := s.db.Exec(`UPDATE threads SET unread = COALESCE(?, unread), starred = COALESCE(?, starred) WHERE id = ?`,
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE threads SET unread = COALESCE(?, unread), starred = COALESCE(?, starred) WHERE id = ?`,
 		unread, starred, id)
 	if err != nil {
 		return err
@@ -413,7 +435,17 @@ func (s *Store) SetFlags(id string, unread, starred *bool) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if unread != nil {
+		if err := queueChange(tx, id, "seen", flagValue(!*unread)); err != nil {
+			return err
+		}
+	}
+	if starred != nil {
+		if err := queueChange(tx, id, "flagged", flagValue(*starred)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Move files a thread: "archive" takes it out of the inbox, "trash" out of everything, "inbox" undoes both.
@@ -435,7 +467,7 @@ func (s *Store) Move(id, to string) error {
 		return err
 	}
 	var target string
-	err = s.db.QueryRow(`SELECT id FROM mailboxes WHERE account_id = ? AND role = ?`, account, to).Scan(&target)
+	err = s.db.QueryRow(`SELECT id FROM mailboxes WHERE account_id = ? AND role = ? ORDER BY position LIMIT 1`, account, to).Scan(&target)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: account %s has no %s mailbox", ErrInvalid, account, to)
 	} else if err != nil {
@@ -453,15 +485,31 @@ func (s *Store) Move(id, to string) error {
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, id, target); err != nil {
 		return err
 	}
+	if err := queueChange(tx, id, "move", to); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
-// MarkAllRead marks every thread in a sidebar entry as read (same convention as Threads).
+// MarkAllRead marks every thread in a sidebar entry as read (same convention as Threads); on IMAP accounts the
+// change is queued for the server.
 func (s *Store) MarkAllRead(accountID, key string) error {
 	where, args, err := s.filter(accountID, key)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE threads SET unread = 0 WHERE id IN (SELECT t.id FROM threads t WHERE `+where+`)`, args...)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO pending_changes (account_id, thread_id, kind, value)
+		SELECT t.account_id, t.id, 'seen', '1' FROM threads t JOIN accounts a ON a.id = t.account_id
+		WHERE t.unread AND a.provider = 'imap' AND `+where, args...); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE threads SET unread = 0 WHERE id IN (SELECT t.id FROM threads t WHERE `+where+`)`, args...); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

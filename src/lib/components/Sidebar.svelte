@@ -17,7 +17,7 @@
   import Avatar from "./Avatar.svelte";
   import { contextmenu } from "$lib/contextmenu";
   import { accountMenu, markAllReadMenu } from "$lib/menus";
-  import { data, retryImport, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
+  import { data, syncNow, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
   import { ROLES, visibleMailboxes } from "$lib/views";
   import type { Mailbox } from "$lib/types";
 
@@ -44,6 +44,7 @@
   // Servers list folders in any order; the sidebar always shows roles in Inboxed's order.
   const roleOrder = (m: Mailbox) => ROLES.findIndex((r) => r.role === m.role);
   const importing = $derived(data.accounts.filter((a) => a.sync?.state === "importing"));
+  const failing = $derived(data.accounts.filter((a) => a.sync?.state === "error"));
 
   const folded = new SvelteSet<string>();
   const toggleFold = (id: string) => (folded.has(id) ? folded.delete(id) : folded.add(id));
@@ -72,7 +73,7 @@
       {@const unread = inboxUnread(a.id)}
       <button
         class="rail-btn"
-        aria-label="{a.name}, {a.email}{unread ? `, ${unread} unread` : ''}{a.sync?.state === 'importing' ? ', importing' : ''}"
+        aria-label="{a.name}, {a.email}{unread ? `, ${unread} unread` : ''}{a.sync?.state === 'importing' ? ', importing' : ''}{a.sync?.state === 'error' ? ", couldn't sync" : ''}"
         title={a.email}
         aria-current={ui.accountId === a.id ? "true" : undefined}
         onclick={() => selectAccount(a.id)}
@@ -113,13 +114,16 @@
         <progress class="import mt-1.5" max={total || undefined} value={total ? done : undefined} aria-label="Import progress"
         ></progress>
       {:else if account?.sync?.state === "error"}
-        <p class="text-caption text-ink-muted wrap-anywhere">Import stopped: {account.sync.error}</p>
+        <p class="text-caption text-ink-muted wrap-anywhere">Couldn't sync: {account.sync.error}</p>
         <button
           class="mt-1 text-caption font-medium text-ink underline underline-offset-2"
-          onclick={() => retryImport(account.id)}
+          onclick={() => syncNow(account.id)}
         >
           Try again
         </button>
+      {:else if !account && failing.length}
+        <!-- The account's own view has the reason and Try again. -->
+        <p class="text-caption text-ink-muted wrap-anywhere">Couldn't sync {failing.map((a) => a.name).join(", ")}</p>
       {:else if !account && importing.length}
         <p class="text-caption text-ink-muted">Importing mail…</p>
       {:else}

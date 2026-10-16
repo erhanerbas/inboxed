@@ -86,7 +86,7 @@ func testServers(t *testing.T) (imapSrv, smtpSrv Server, user *imapmemserver.Use
 	keyring.MockInit()
 	mem := imapmemserver.New()
 	user = imapmemserver.NewUser("you@example.com", "secret")
-	for _, name := range []string{"INBOX", "Sent", "Archive", "Work", "Work/Projects"} {
+	for _, name := range []string{"INBOX", "Sent", "Archive", "Trash", "Work", "Work/Projects"} {
 		user.Create(name, nil)
 	}
 	appendRaw(t, user, "INBOX", dinner)
@@ -127,7 +127,7 @@ func serveSMTP(t *testing.T, backend smtp.Backend) Server {
 	return local(ln)
 }
 
-func waitImport(t *testing.T, im *Importer, id string) Progress {
+func waitImport(t *testing.T, im *Syncer, id string) Progress {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if p := im.Progress(id); p != nil && p.State != "importing" {
@@ -141,7 +141,7 @@ func waitImport(t *testing.T, im *Importer, id string) Progress {
 func TestAddAccountRejectsBadSignIns(t *testing.T) {
 	imapSrv, smtpSrv, _ := testServers(t)
 	s := newTestStore(t)
-	im := NewImporter(s)
+	im := testSyncer(t, s)
 	closed := listen(t)
 	nothing := local(closed)
 	closed.Close()
@@ -172,7 +172,7 @@ func TestAddAccountRejectsBadSignIns(t *testing.T) {
 func TestImportAccount(t *testing.T) {
 	imapSrv, smtpSrv, user := testServers(t)
 	s := newTestStore(t)
-	im := NewImporter(s)
+	im := testSyncer(t, s)
 	a, err := im.AddAccount(AccountSettings{Name: "Home", Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: smtpSrv})
 	if err != nil {
 		t.Fatal(err)
@@ -217,17 +217,10 @@ func TestImportAccount(t *testing.T) {
 		t.Errorf("starred: %v", ids(got))
 	}
 
-	// A second run fetches only what's new.
+	// The next pass fetches only what's new.
 	appendRaw(t, user, "INBOX", newsletter)
-	im.Start(a.ID)
-	if p := waitImport(t, im, a.ID); p.Done != 1 || p.Total != 1 {
-		t.Errorf("second run: %+v", p)
-	}
-	var messages int
-	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id LIKE ?`, a.ID+"/%").Scan(&messages)
-	if messages != 5 {
-		t.Errorf("%d messages after the second run, want 5", messages)
-	}
+	im.Start(a.ID) // wakes the running sync
+	eventually(t, "the new message imported on the next pass", func() bool { return accountMessages(t, s, a.ID) == 5 })
 
 	if err := im.RemoveAccount(a.ID); err != nil {
 		t.Fatal(err)
@@ -296,7 +289,7 @@ func TestImportSkipsWhatItCantRead(t *testing.T) {
 		return flaky{SessionIMAP4rev2: s.(imapserver.SessionIMAP4rev2), failSelect: "Broken", failUID: 2}
 	})
 	s := newTestStore(t)
-	im := NewImporter(s)
+	im := testSyncer(t, s)
 	a, err := im.AddAccount(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: serveSMTP(t, smtpBackend{})})
 	if err != nil {
 		t.Fatal(err)
@@ -324,7 +317,7 @@ func TestImportDownloadsEachMessageOnce(t *testing.T) {
 		return flaky{SessionIMAP4rev2: s.(imapserver.SessionIMAP4rev2), bodies: &bodies}
 	})
 	s := newTestStore(t)
-	im := NewImporter(s)
+	im := testSyncer(t, s)
 	a, err := im.AddAccount(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: serveSMTP(t, smtpBackend{})})
 	if err != nil {
 		t.Fatal(err)
@@ -374,11 +367,11 @@ func silentServer(t *testing.T, login bool) Server {
 }
 
 func TestSignInGivesUpOnASilentServer(t *testing.T) {
-	defer func(old time.Duration) { signInTimeout = old }(signInTimeout)
+	t.Cleanup(func(old time.Duration) func() { return func() { signInTimeout = old } }(signInTimeout))
 	signInTimeout = 200 * time.Millisecond
 	_, smtpSrv, _ := testServers(t)
 	start := time.Now()
-	_, err := NewImporter(newTestStore(t)).AddAccount(AccountSettings{Email: "you@example.com", Password: "secret",
+	_, err := testSyncer(t, newTestStore(t)).AddAccount(AccountSettings{Email: "you@example.com", Password: "secret",
 		IMAP: silentServer(t, false), SMTP: smtpSrv})
 	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stopped answering") || time.Since(start) > 3*time.Second {
 		t.Errorf("after %v: %v", time.Since(start), err)
@@ -386,7 +379,7 @@ func TestSignInGivesUpOnASilentServer(t *testing.T) {
 }
 
 func TestImportGivesUpOnAStalledServer(t *testing.T) {
-	defer func(old time.Duration) { idleTimeout = old }(idleTimeout)
+	t.Cleanup(func(old time.Duration) func() { return func() { idleTimeout = old } }(idleTimeout))
 	idleTimeout = 300 * time.Millisecond
 	keyring.MockInit()
 	s := newTestStore(t)
@@ -396,7 +389,7 @@ func TestImportGivesUpOnAStalledServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyring.Set(keyringService, "acc", "secret")
-	im := NewImporter(s)
+	im := testSyncer(t, s)
 	im.Start("acc")
 	if p := waitImport(t, im, "acc"); p.State != "error" || !strings.Contains(p.Error, "stopped answering") {
 		t.Errorf("progress %+v", p)

@@ -18,6 +18,7 @@ const engine = vi.hoisted(() => {
     lists: [] as ((v: unknown) => void)[], // pending /threads? responses when `slow` is set
     slow: false,
     reject: "" as string, // when set, POST /accounts fails with this 400 message
+    emit: undefined as undefined | (() => void), // sends a change event, as the engine's stream would
   };
 });
 
@@ -43,6 +44,10 @@ vi.mock("./engine", () => {
     api,
     send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
     EngineError,
+    follow: (onChange: () => void) => {
+      engine.emit = onChange;
+      return new Promise<void>(() => {}); // stays connected
+    },
   };
 });
 
@@ -163,9 +168,9 @@ describe("accounts", () => {
     expect(s.ui.accountId).toBe("all");
   });
 
-  it("retrying an import asks the engine to start it again", async () => {
-    await s.retryImport("a2");
-    expect(writes()).toContainEqual({ path: "/accounts/a2/import", method: "POST", body: undefined });
+  it("Sync now asks the engine to sync the account", async () => {
+    await s.syncNow("a2");
+    expect(writes()).toContainEqual({ path: "/accounts/a2/sync", method: "POST", body: undefined });
   });
 });
 
@@ -183,5 +188,17 @@ describe("removing an account", () => {
     await s.removeAccount("a2");
     expect(s.ui.threadId).toBe(null);
     expect(s.ui.error).toBe("");
+  });
+});
+
+describe("live updates", () => {
+  it("an event reloads at once, and a burst after it becomes one more reload a second later", async () => {
+    engine.emit?.();
+    engine.emit?.();
+    engine.emit?.();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(1);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(engine.calls.filter((c) => c.path === "/accounts").length).toBe(2);
   });
 });

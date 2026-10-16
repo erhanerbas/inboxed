@@ -65,10 +65,10 @@ func TestAPI(t *testing.T) {
 }
 
 // testRoutes is the API over a seeded store, as main wires it.
-func testRoutes(t *testing.T) (http.Handler, *Store, *Importer) {
+func testRoutes(t *testing.T) (http.Handler, *Store, *Syncer) {
 	s := newTestStore(t)
-	im := NewImporter(s)
-	return routes(s, im), s, im
+	im := testSyncer(t, s)
+	return routes(s, im, NewEvents()), s, im
 }
 
 func TestAccountsAPI(t *testing.T) {
@@ -105,7 +105,7 @@ func TestAccountsAPI(t *testing.T) {
 	if last := accounts[len(accounts)-1]; last.Sync == nil || last.Sync.State != "done" || last.Sync.Done != 4 {
 		t.Errorf("GET /accounts sync: %+v", last.Sync)
 	}
-	if res := call("POST", "/accounts/a1/import", ""); res.StatusCode != 400 {
+	if res := call("POST", "/accounts/a1/sync", ""); res.StatusCode != 400 {
 		t.Errorf("importing a demo account: %d", res.StatusCode)
 	}
 	if res := call("DELETE", "/accounts/"+a.ID, ""); res.StatusCode != 204 {

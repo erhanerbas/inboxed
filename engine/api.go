@@ -6,37 +6,52 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 )
 
-func routes(s *Store, im *Importer) http.Handler {
+func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
+	// A local change on an IMAP account is queued; waking its syncer sends it now rather than at the next check.
+	// Thread ids start with their account id ("<account>/…"); "all" is the unified view.
+	sent := func(account string, err error) error {
+		account, _, _ = strings.Cut(account, "/")
+		switch {
+		case err != nil:
+		case account == "all":
+			sy.WakeAll()
+		default:
+			sy.Wake(account)
+		}
+		return err
+	}
 	mux := http.NewServeMux()
+	mux.Handle("GET /events", ev)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]string{"status": "ok"}, nil)
 	})
 	mux.HandleFunc("GET /accounts", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Accounts()
 		for i := range v {
-			v[i].Sync = im.Progress(v[i].ID)
+			v[i].Sync = sy.Progress(v[i].ID)
 		}
 		respond(w, v, err)
 	})
 	mux.HandleFunc("POST /accounts", func(w http.ResponseWriter, r *http.Request) {
 		var body AccountSettings
 		if decode(w, r, &body) {
-			v, err := im.AddAccount(body)
+			v, err := sy.AddAccount(body)
 			respond(w, v, err)
 		}
 	})
 	mux.HandleFunc("DELETE /accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, im.RemoveAccount(r.PathValue("id")))
+		respond(w, nil, sy.RemoveAccount(r.PathValue("id")))
 	})
-	mux.HandleFunc("POST /accounts/{id}/import", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /accounts/{id}/sync", func(w http.ResponseWriter, r *http.Request) {
 		set, err := s.AccountSettings(r.PathValue("id"))
 		if err == nil && set.IMAP.Host == "" {
-			err = problem("This account has no mail server to import from.")
+			err = problem("This account has no mail server to sync with.")
 		}
 		if err == nil {
-			im.Start(r.PathValue("id"))
+			sy.Start(r.PathValue("id"))
 		}
 		respond(w, nil, err)
 	})
@@ -56,19 +71,19 @@ func routes(s *Store, im *Importer) http.Handler {
 	mux.HandleFunc("PATCH /threads/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Unread, Starred *bool }
 		if decode(w, r, &body) {
-			respond(w, nil, s.SetFlags(r.PathValue("id"), body.Unread, body.Starred))
+			respond(w, nil, sent(r.PathValue("id"), s.SetFlags(r.PathValue("id"), body.Unread, body.Starred)))
 		}
 	})
 	mux.HandleFunc("POST /threads/{id}/move", func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ To string }
 		if decode(w, r, &body) {
-			respond(w, nil, s.Move(r.PathValue("id"), body.To))
+			respond(w, nil, sent(r.PathValue("id"), s.Move(r.PathValue("id"), body.To)))
 		}
 	})
 	mux.HandleFunc("POST /read-all", func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Account, Key string }
 		if decode(w, r, &body) {
-			respond(w, nil, s.MarkAllRead(body.Account, body.Key))
+			respond(w, nil, sent(body.Account, s.MarkAllRead(body.Account, body.Key)))
 		}
 	})
 	return mux

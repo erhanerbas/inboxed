@@ -184,8 +184,8 @@ func (s *Store) AddMessage(in Incoming) error {
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id) VALUES (?, ?, ?)`,
-		in.MailboxID, in.UID, msgID); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id, seen, flagged) VALUES (?, ?, ?, ?, ?)`,
+		in.MailboxID, in.UID, msgID, in.Seen, in.Flagged); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, threadID, in.MailboxID); err != nil {
@@ -194,6 +194,9 @@ func (s *Store) AddMessage(in Incoming) error {
 	// A thread is unread while any copy of any of its messages is unseen, and starred while any is flagged.
 	if _, err := tx.Exec(`UPDATE threads SET unread = unread OR ?, starred = starred OR ? WHERE id = ?`,
 		!in.Seen, in.Flagged, threadID); err != nil {
+		return err
+	}
+	if err := syncThread(tx, threadID); err != nil {
 		return err
 	}
 	if err := refreshThread(tx, threadID); err != nil {
@@ -274,8 +277,8 @@ func (s *Store) AddLocation(accountID, mailboxID string, uid uint32, headerID st
 	} else if err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id) VALUES (?, ?, ?)`,
-		mailboxID, uid, msgID); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id, seen, flagged) VALUES (?, ?, ?, ?, ?)`,
+		mailboxID, uid, msgID, seen, flagged); err != nil {
 		return false, err
 	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, threadID, mailboxID); err != nil {
@@ -283,6 +286,9 @@ func (s *Store) AddLocation(accountID, mailboxID string, uid uint32, headerID st
 	}
 	if _, err := tx.Exec(`UPDATE threads SET unread = unread OR ?, starred = starred OR ? WHERE id = ?`,
 		!seen, flagged, threadID); err != nil {
+		return false, err
+	}
+	if err := syncThread(tx, threadID); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()
