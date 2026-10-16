@@ -17,25 +17,39 @@ const engine = vi.hoisted(() => {
     fail: false,
     lists: [] as ((v: unknown) => void)[], // pending /threads? responses when `slow` is set
     slow: false,
+    reject: "" as string, // when set, POST /accounts fails with this 400 message
   };
 });
 
 vi.mock("./engine", () => {
+  class EngineError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  }
   const api = async (path: string, init: RequestInit = {}) => {
     if (engine.fail) throw new Error("engine down");
+    if (path === "/accounts" && init.method === "POST" && engine.reject) throw new EngineError(400, engine.reject);
     engine.calls.push({ path, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body as string) : undefined });
     if (path.startsWith("/threads?") && engine.slow) return new Promise((resolve) => engine.lists.push(resolve));
     if (path.startsWith("/threads/") && !path.endsWith("/move")) return structuredClone(engine.thread);
     if (path === "/accounts") return [{ id: "a2", name: "Work", email: "you@work.example", provider: "outlook", color: "" }];
     return init.method && init.method !== "GET" ? undefined : [];
   };
-  return { api, send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }) };
+  return {
+    api,
+    send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
+    EngineError,
+  };
 });
 
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
-  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [] });
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "" });
   engine.thread.unread = true;
   s = await import("./state.svelte");
   await s.start();
@@ -120,5 +134,37 @@ describe("failures and races", () => {
     engine.lists[0]([{ id: "old" }]);
     await Promise.all([first, second]);
     expect(s.data.list.map((t) => t.id)).toEqual(["new"]);
+  });
+});
+
+describe("accounts", () => {
+  const settings = {
+    name: "Home", email: "you@example.com", username: "", password: "secret",
+    imap: { host: "imap.example.com", port: 993, security: "tls" as const },
+    smtp: { host: "smtp.example.com", port: 465, security: "tls" as const },
+  };
+
+  it("adding an account posts the settings and reloads the accounts", async () => {
+    expect(await s.addAccount(settings)).toBe(null);
+    expect(writes()[0]).toEqual({ path: "/accounts", method: "POST", body: settings });
+    expect(engine.calls.some((c) => c.path === "/accounts" && c.method === "GET")).toBe(true);
+  });
+
+  it("a refused account returns the engine's message for the form and leaves the status bar alone", async () => {
+    engine.reject = "imap.example.com didn't accept the username or password.";
+    expect(await s.addAccount(settings)).toBe(engine.reject);
+    expect(s.ui.error).toBe("");
+  });
+
+  it("removing the selected account goes back to all inboxes", async () => {
+    s.ui.accountId = "a2";
+    await s.removeAccount("a2");
+    expect(writes()).toContainEqual({ path: "/accounts/a2", method: "DELETE", body: undefined });
+    expect(s.ui.accountId).toBe("all");
+  });
+
+  it("retrying an import asks the engine to start it again", async () => {
+    await s.retryImport("a2");
+    expect(writes()).toContainEqual({ path: "/accounts/a2/import", method: "POST", body: undefined });
   });
 });

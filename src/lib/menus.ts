@@ -11,6 +11,7 @@ import {
   setUnread,
   toggleStar,
   trash,
+  ui,
 } from "./state.svelte";
 import type { ThreadSummary as Thread } from "./types";
 
@@ -89,4 +90,11 @@ export function runShortcut(e: KeyboardEvent, t: Thread | undefined): boolean {
 /** For a sidebar entry or an account (same accountId/key convention as `ui`). */
 export const markAllReadMenu = (accountId: string, key: string, unread: number): MenuEntry[] => [
   { text: "Mark All as Read", enabled: unread > 0, action: () => markAllRead(accountId, key) },
+];
+
+/** For an account in the rail: everything in its inbox read, or remove it (after a confirmation). */
+export const accountMenu = (accountId: string, key: string, unread: number): MenuEntry[] => [
+  ...markAllReadMenu(accountId, key, unread),
+  "separator",
+  { text: "Remove Account…", action: () => (ui.removingAccount = accountId) },
 ];

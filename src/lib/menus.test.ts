@@ -7,7 +7,11 @@ vi.mock("./engine", () => {
     calls.push({ path, body: init.body ? JSON.parse(init.body as string) : undefined });
     return path.startsWith("/threads?") || path === "/mailboxes" ? [] : undefined;
   };
-  return { api, send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }) };
+  return {
+    api,
+    send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
+    EngineError: Error,
+  };
 });
 
 let s: typeof import("./state.svelte");
@@ -61,5 +65,14 @@ describe("runShortcut (non-mac: Ctrl is the command key)", () => {
   it("ignores keys that aren't commands, and missing threads", () => {
     expect(m.runShortcut(key("u"), row())).toBe(false);
     expect(m.runShortcut(key("U", { ctrlKey: true, shiftKey: true }), undefined)).toBe(false);
+  });
+});
+
+describe("accountMenu", () => {
+  it("offers Mark All as Read and Remove Account…", () => {
+    const entries = m.accountMenu("a1", "a1-inbox", 2);
+    expect(labels(entries)).toEqual(["Mark All as Read", "—", "Remove Account…"]);
+    (entries[2] as Exclude<import("./menus").MenuEntry, "separator">).action();
+    expect(s.ui.removingAccount).toBe("a1");
   });
 });

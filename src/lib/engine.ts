@@ -4,6 +4,16 @@ type Engine = { url: string; token: string };
 
 let engine: Promise<Engine> | undefined;
 
+/** The engine answered and said no. For a 400 the message is written for people (form errors). */
+export class EngineError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 // Inside Tauri the shell hands over the sidecar's address. In a plain browser (development, headless checks)
 // VITE_ENGINE_URL and VITE_ENGINE_TOKEN point at `npm run dev:engine`.
 function connect(): Promise<Engine> {
@@ -21,7 +31,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set("Authorization", `Bearer ${token}`);
   if (init.body) headers.set("Content-Type", "application/json");
   const res = await fetch(url + path, { ...init, headers });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new EngineError(res.status, body.error ?? res.statusText);
+  }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 

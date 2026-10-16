@@ -6,6 +6,7 @@ export type Account = {
   email: string;
   provider: Provider;
   color: string; // identity color for the rail avatar and list dots
+  sync?: ImportProgress;
 };
 
 export type MailboxRole = "inbox" | "starred" | "drafts" | "sent" | "archive" | "spam" | "trash" | null;
@@ -48,3 +49,18 @@ export type ThreadSummary = {
 
 /** An open conversation. */
 export type Thread = ThreadSummary & { messages: Message[] }; // oldest first
+
+/** An account's mail import, as the engine reports it while running. */
+export type ImportProgress = { state: "importing" | "done" | "error"; done: number; total: number; error?: string };
+
+export type Server = { host: string; port: number; security: "tls" | "starttls" };
+
+/** What the add-account form sends. */
+export type AccountSettings = {
+  name: string;
+  email: string;
+  username: string; // empty means the email address
+  password: string;
+  imap: Server;
+  smtp: Server;
+};

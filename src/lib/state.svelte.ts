@@ -1,5 +1,5 @@
-import { api, send } from "./engine";
-import type { Account, Mailbox, Thread, ThreadSummary } from "./types";
+import { api, EngineError, send } from "./engine";
+import type { Account, AccountSettings, Mailbox, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
 export const data = $state({
@@ -29,6 +29,7 @@ export const ui = $state({
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
   error: "", // shown by the status bar in +page.svelte
+  removingAccount: null as string | null, // the account the remove-account confirmation is asking about
 });
 
 /** Runs engine work. A failure becomes a message with a way out; it never throws. */
@@ -62,11 +63,47 @@ async function reload() {
   data.mailboxes = mailboxes;
 }
 
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+// ponytail: polls while an import runs; Phase 4's Server-Sent Events replace this.
+function pollWhileImporting() {
+  clearTimeout(pollTimer);
+  if (data.accounts.some((a) => a.sync?.state === "importing")) pollTimer = setTimeout(() => run(refreshAll), 1500);
+}
+
+async function refreshAll() {
+  data.accounts = await api<Account[]>("/accounts");
+  await reload();
+  pollWhileImporting();
+}
+
 /** First load; also the status bar's "Try again". */
-export const start = () =>
+export const start = () => run(refreshAll);
+
+/** Adds an IMAP/SMTP account. Resolves to a message for the form when the engine refuses, or null when added. */
+export async function addAccount(settings: AccountSettings): Promise<string | null> {
+  try {
+    await api("/accounts", { method: "POST", body: JSON.stringify(settings) });
+  } catch (err) {
+    if (err instanceof EngineError && err.status === 400) return err.message;
+    console.error(err);
+    return "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.";
+  }
+  await start();
+  return null;
+}
+
+export const removeAccount = (id: string) =>
   run(async () => {
-    data.accounts = await api<Account[]>("/accounts");
-    await reload();
+    await api(`/accounts/${id}`, { method: "DELETE" });
+    if (ui.accountId === id) selectAccount("all");
+    await refreshAll();
+  });
+
+export const retryImport = (id: string) =>
+  run(async () => {
+    await api(`/accounts/${id}/import`, { method: "POST" });
+    await refreshAll();
   });
 
 /** Reloads the list for the current view and query (+page.svelte runs this whenever they change). */
