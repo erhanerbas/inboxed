@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -55,7 +56,8 @@ func (sy *Syncer) file(accountID, role string, raw []byte, flags ...imap.Flag) (
 	if err != nil {
 		return "", err
 	}
-	defer func() { c.Logout().Wait(); c.Close() }()
+	stalled := time.AfterFunc(idleTimeout, func() { c.Close() }) // go-imap doesn't time out commands
+	defer func() { stalled.Stop(); c.Logout().Wait(); c.Close() }()
 	now := time.Now()
 	cmd := c.Append(path, int64(len(raw)), &imap.AppendOptions{Flags: flags, Time: now})
 	if _, err := cmd.Write(raw); err != nil {
@@ -72,19 +74,20 @@ func (sy *Syncer) file(accountID, role string, raw []byte, flags ...imap.Flag) (
 	if err != nil {
 		return "", err
 	}
-	if data != nil && data.UID != 0 {
-		if err := sy.store.AddMessage(Incoming{AccountID: accountID, MailboxID: mailboxID, UID: uint32(data.UID),
-			Seen: true, parsed: p}); err != nil {
-			return "", err
-		}
-	} else {
+	// The server has it now, so this can't fail any more: if it can't be stored here, the next sync brings it.
+	if data == nil || data.UID == 0 {
+		sy.Wake(accountID)
+	} else if err := sy.store.AddMessage(Incoming{AccountID: accountID, MailboxID: mailboxID, UID: uint32(data.UID),
+		Seen: true, parsed: p}); err != nil {
+		log.Printf("file %s: stored on the server, not here yet: %v", accountID, err)
 		sy.Wake(accountID)
 	}
 	return accountID + "/" + p.HeaderID, nil
 }
 
-// Send sends over SMTP, files a copy in Sent and deletes the draft it came from. Anything after the server accepted
-// the message is only logged: reporting it as a failure would invite sending twice.
+// Send sends over SMTP and returns once the server accepted it. Filing a copy in Sent and deleting the draft it came
+// from happen in the background and are only logged: the mail is sent, and reporting anything else as a failure, or
+// keeping the panel waiting on it, would invite sending twice.
 func (sy *Syncer) Send(d Draft) error {
 	out, err := sy.store.Compose(d, time.Now(), false)
 	if err != nil {
@@ -103,17 +106,19 @@ func (sy *Syncer) Send(d Draft) error {
 		return problem(fmt.Sprintf("%s didn't accept the message: %v", set.SMTP.Host, err))
 	}
 	c.Quit()
-	if savesSentItself(set.SMTP.Host) {
-		sy.Wake(d.AccountID)
-	} else if _, err := sy.file(d.AccountID, "sent", out.Raw, imap.FlagSeen); err != nil && !errors.Is(err, ErrNotFound) {
-		log.Printf("send %s: sent, but filing a copy in Sent failed: %v", d.AccountID, err)
-	}
-	if d.DraftID != "" {
-		if err := sy.DeleteDraft(d.DraftID); err != nil {
-			log.Printf("send %s: sent, but deleting the draft failed: %v", d.AccountID, err)
+	sy.running.Go(func() {
+		if savesSentItself(set.SMTP.Host) {
+			sy.Wake(d.AccountID)
+		} else if _, err := sy.file(d.AccountID, "sent", out.Raw, imap.FlagSeen); err != nil && !errors.Is(err, ErrNotFound) {
+			log.Printf("send %s: sent, but filing a copy in Sent failed: %v", d.AccountID, err)
 		}
-	}
-	sy.onChange()
+		if d.DraftID != "" {
+			if err := sy.DeleteDraft(d.DraftID); err != nil {
+				log.Printf("send %s: sent, but deleting the draft failed: %v", d.AccountID, err)
+			}
+		}
+		sy.onChange()
+	})
 	return nil
 }
 
@@ -144,7 +149,12 @@ func (sy *Syncer) DeleteDraft(id string) error {
 	accountID, _, _ := strings.Cut(id, "/")
 	_, path, uid, err := sy.store.Copy(id, "drafts")
 	if errors.Is(err, ErrNotFound) {
-		return sy.store.DeleteMessage(id) // not on the server (yet): nothing to do there
+		// Not in Drafts on the server. Only a draft not stored there yet (no locations at all) is deleted here; mail
+		// anywhere else is never touched through this.
+		if located, err := sy.store.Located(id); err != nil || located {
+			return cmp.Or(err, error(problem("That message isn't a draft.")))
+		}
+		return sy.store.DeleteMessage(id)
 	} else if err != nil {
 		return err
 	}
@@ -156,7 +166,8 @@ func (sy *Syncer) DeleteDraft(id string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { c.Logout().Wait(); c.Close() }()
+	stalled := time.AfterFunc(idleTimeout, func() { c.Close() })
+	defer func() { stalled.Stop(); c.Logout().Wait(); c.Close() }()
 	if _, err := c.Select(path, nil).Wait(); err != nil {
 		return err
 	}

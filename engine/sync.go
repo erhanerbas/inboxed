@@ -257,10 +257,11 @@ func wait(ctx context.Context, l *link, inbox watched, idle bool, changed, wakeu
 		// comes with no note. From here on the inbox is open and changes are reported; before, compare its STATUS.
 		l.alive()
 		_, status, err := folderStatus(c, inbox.path)
-		if err != nil {
+		if err != nil && !commandFailed(err) {
 			return err
 		}
-		if status != inbox.status {
+		// A server may refuse STATUS on the open folder (RFCs discourage it): then there's nothing to compare.
+		if err == nil && status != inbox.status {
 			return nil // changed since the folder sync looked: go again rather than wait
 		}
 		if cmd, err = c.Idle(); err != nil {
@@ -555,7 +556,7 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 	if sel.NumMessages > 0 {
 		l.alive()
 		above := imap.UIDSet{imap.UIDRange{Start: imap.UID(top + 1), Stop: 0}}
-		found, err := c.UIDSearch(&imap.SearchCriteria{UID: []imap.UIDSet{above}}, nil).Wait()
+		found, err := c.UIDSearch(&imap.SearchCriteria{UID: []imap.UIDSet{above}, NotFlag: notDeleted}, nil).Wait()
 		if err != nil {
 			return "", nil, err
 		}
@@ -570,7 +571,7 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 		onServer := map[uint32]bool{}
 		if sel.NumMessages > 0 {
 			l.alive()
-			found, err := c.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
+			found, err := c.UIDSearch(&imap.SearchCriteria{NotFlag: notDeleted}, nil).Wait()
 			if err != nil {
 				return "", nil, err
 			}
@@ -613,6 +614,11 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 	slices.SortFunc(fresh, func(a, b imap.UID) int { return cmp.Compare(b, a) })
 	return id, fresh, nil
 }
+
+// notDeleted leaves out mail flagged \Deleted but not yet expunged: it's on its way out (a draft replaced on a server
+// without UIDPLUS, another client's delete), not mail to import. Its count still makes the cheap check fall back to
+// comparing every UID, which is how it's forgotten here.
+var notDeleted = []imap.Flag{imap.FlagDeleted}
 
 var (
 	idHeader  = &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: []string{"Message-ID"}, Peek: true}

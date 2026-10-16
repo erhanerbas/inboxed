@@ -30,6 +30,7 @@ const (
 // otherwise hang a sign-in or an import forever.
 var (
 	signInTimeout = 45 * time.Second // the add-account form waits on this
+	smtpTimeout   = time.Minute      // per SMTP command or reply; ponytail: raise for big attachments (Phase 6) on slow uplinks
 	idleTimeout   = 2 * time.Minute  // a sync gives up when the server has answered nothing for this long (IDLE excepted)
 )
 
@@ -119,17 +120,33 @@ func checkSMTP(s Server, username, password string) error {
 	return nil
 }
 
-// dialSMTP connects and signs in. The connection's deadline stays set, so a server that stops answering can't hang a
-// send either.
+// cappedConn keeps every deadline within limit from now. go-smtp sets its own deadline before each command (5 to 12
+// minutes, and none while idle), replacing any set on the connection, and its STARTTLS client can't be given shorter
+// ones; capping them here is the one place that covers plain, TLS and STARTTLS alike.
+type cappedConn struct {
+	net.Conn
+	limit time.Duration
+}
+
+func (c cappedConn) SetDeadline(t time.Time) error {
+	if latest := time.Now().Add(c.limit); t.IsZero() || t.After(latest) {
+		t = latest
+	}
+	return c.Conn.SetDeadline(t)
+}
+
+// dialSMTP connects and signs in. No SMTP command or reply can take longer than smtpTimeout, so a server that stops
+// answering can't hang the add-account form or a send.
 func dialSMTP(s Server, username, password string) (*smtp.Client, error) {
 	if err := checkSecurity(s); err != nil {
 		return nil, err
 	}
-	conn, err := (&net.Dialer{Timeout: dialTimeout}).Dial("tcp", address(s))
+	raw, err := (&net.Dialer{Timeout: dialTimeout}).Dial("tcp", address(s))
 	if err != nil {
 		return nil, cantConnect(s, err)
 	}
-	conn.SetDeadline(time.Now().Add(2 * dialTimeout)) // a server that accepts but never answers can't hang the form
+	conn := cappedConn{raw, smtpTimeout}
+	conn.SetDeadline(time.Time{}) // the greeting and TLS handshake, before go-smtp sets any
 	var c *smtp.Client
 	switch s.Security {
 	case "tls":

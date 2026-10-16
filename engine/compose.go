@@ -80,6 +80,9 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 	}
 
 	var h mail.Header
+	if name == email {
+		name = "" // the account's name defaults to its address: From: "you@x" <you@x> reads oddly, and spam filters notice
+	}
 	h.SetAddressList("From", []*mail.Address{{Name: name, Address: email}})
 	if len(to) > 0 {
 		h.SetAddressList("To", to)

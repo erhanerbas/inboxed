@@ -254,3 +254,10 @@ func (s *Store) DeleteMessage(id string) error {
 	}
 	return tx.Commit()
 }
+
+// Located says whether a message is in any folder on the server.
+func (s *Store) Located(messageID string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM message_locations WHERE message_id = ?`, messageID).Scan(&n)
+	return n > 0, err
+}

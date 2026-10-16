@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
@@ -87,17 +89,20 @@ func TestSendReplyFilesInSent(t *testing.T) {
 	if got := rec.sent(); len(got) != 1 || !strings.Contains(got[0], "In-Reply-To: <d3@example.com>") {
 		t.Fatalf("SMTP got %q", got)
 	}
+	// Filed in the background, after the send already returned.
+	eventually(t, "a copy is filed in Sent", func() bool { return len(folder(t, imapSrv, "Sent")) == before+1 })
 	sent := folder(t, imapSrv, "Sent")
-	if len(sent) != before+1 {
-		t.Fatalf("Sent holds %d, want %d", len(sent), before+1)
-	}
 	for id, flags := range sent {
 		if id != "d2@example.com" && !slices.Contains(flags, imap.FlagSeen) {
 			t.Errorf("the Sent copy isn't marked read: %v", flags)
 		}
 	}
+	eventually(t, "the reply is in the thread here", func() bool {
+		th, _ := s.Thread(acc + "/d1@example.com")
+		return len(th.Messages) == 4
+	})
 	th, _ := s.Thread(acc + "/d1@example.com")
-	if len(th.Messages) != 4 || th.Messages[3].Body != "See you!" || th.Messages[3].Draft {
+	if th.Messages[3].Body != "See you!" || th.Messages[3].Draft {
 		t.Errorf("the reply isn't in the thread here: %d messages", len(th.Messages))
 	}
 }
@@ -174,9 +179,7 @@ func TestDraftsRoundTrip(t *testing.T) {
 	if err := sy.Send(d); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(folder(t, imapSrv, "Drafts")); n != 0 {
-		t.Errorf("Drafts holds %d after sending the draft", n)
-	}
+	eventually(t, "the sent draft leaves Drafts", func() bool { return len(folder(t, imapSrv, "Drafts")) == 0 })
 
 	id3, _ := sy.SaveDraft(Draft{AccountID: acc, Subject: "Never mind"})
 	s.db.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, id3).Scan(&threadID)
@@ -198,5 +201,58 @@ func TestSavesSentItself(t *testing.T) {
 		if got := savesSentItself(host); got != want {
 			t.Errorf("%s: %v", host, got)
 		}
+	}
+}
+
+// An SMTP server that greets and then never answers can't hang the add-account form or a send.
+func TestSMTPGivesUpOnASilentServer(t *testing.T) {
+	old := smtpTimeout
+	smtpTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { smtpTimeout = old })
+	ln := listen(t)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			fmt.Fprint(conn, "220 ready\r\n")
+			go io.Copy(io.Discard, conn) // and then silence
+		}
+	}()
+	t.Cleanup(func() { ln.Close() })
+	start := time.Now()
+	err := checkSMTP(local(ln), "you@example.com", "secret")
+	if err == nil || time.Since(start) > 3*time.Second {
+		t.Errorf("after %v: %v", time.Since(start), err)
+	}
+}
+
+// Mail flagged \Deleted but not expunged (a client without UIDPLUS, or one that expunges later) is gone here.
+func TestDeletedButNotExpungedIsGone(t *testing.T) {
+	old := fullInterval
+	fullInterval = 0 // a flag change shows in STATUS only with CONDSTORE; otherwise the hourly full check finds it
+	t.Cleanup(func() { fullInterval = old })
+	imapSrv, smtpSrv, _ := testServers(t)
+	s, sy, acc := syncedAccount(t, imapSrv, smtpSrv)
+	phone := otherDevice(t, imapSrv)
+	uid := uidOf(t, phone, "INBOX", "d1@example.com")
+	phone.Store(imap.UIDSetNum(uid), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}, nil).Close()
+	sy.Start(acc)
+	eventually(t, "the deleted message leaves the thread", func() bool {
+		th, _ := s.Thread(acc + "/d1@example.com")
+		return len(th.Messages) == 2
+	})
+}
+
+// The draft endpoints only ever delete drafts.
+func TestDeleteDraftRefusesOtherMail(t *testing.T) {
+	imapSrv, smtpSrv, _ := testServers(t)
+	s, sy, acc := syncedAccount(t, imapSrv, smtpSrv)
+	if err := sy.DeleteDraft(acc + "/d1@example.com"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("deleting an inbox message as a draft: %v", err)
+	}
+	if th, _ := s.Thread(acc + "/d1@example.com"); len(th.Messages) != 3 {
+		t.Errorf("the message was deleted here: %d left", len(th.Messages))
 	}
 }
