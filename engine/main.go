@@ -59,7 +59,7 @@ func main() {
 		keyring.MockInit()
 	}
 	events := NewEvents()
-	syncer := NewSyncer(store, events.Publish)
+	syncer := NewSyncer(store, events.Publish, events.Mail)
 	// Every IMAP account stays in sync while the engine runs.
 	ids, err := store.IMAPAccounts()
 	if err != nil {

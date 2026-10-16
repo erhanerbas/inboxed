@@ -31,6 +31,7 @@ var (
 type Syncer struct {
 	store    *Store
 	onChange func()
+	onMail   func([]NewMail) // new inbox mail from one pass, for notifications; nil ignores it
 	mu       sync.Mutex
 	jobs     map[string]*job
 	cycles   atomic.Int64   // completed passes, for tests
@@ -39,13 +40,15 @@ type Syncer struct {
 
 type job struct {
 	id       string
+	me       string    // the account's address: its own mail never notifies
+	fresh    []NewMail // new inbox mail found in the current pass (only the account's goroutine touches it)
 	progress Progress
 	cancel   context.CancelFunc
 	wake     chan struct{}
 }
 
-func NewSyncer(s *Store, onChange func()) *Syncer {
-	return &Syncer{store: s, onChange: onChange, jobs: map[string]*job{}}
+func NewSyncer(s *Store, onChange func(), onMail func([]NewMail)) *Syncer {
+	return &Syncer{store: s, onChange: onChange, onMail: onMail, jobs: map[string]*job{}}
 }
 
 // Progress is an account's sync as of now, or nil when it isn't running.
@@ -179,6 +182,7 @@ func (sy *Syncer) session(ctx context.Context, j *job) (synced bool, err error) 
 	if err != nil {
 		return false, err
 	}
+	j.me = strings.ToLower(set.Email)
 	password, err := keyring.Get(keyringService, j.id)
 	if err != nil {
 		return false, problem("Inboxed couldn't read this account's password from the keychain. Remove the account and add it again.")
@@ -407,6 +411,7 @@ func movedUIDs(d *imapclient.MoveData) (from, to []uint32, ok bool) {
 type folderWork struct {
 	mailboxID, path, status string
 	modseq                  uint64
+	notify                  bool       // an inbox synced before: what's new here is new mail, not history
 	rank                    int        // 0 inbox, 1 other folders, 2 All Mail: the mail people look at first comes first
 	uids                    []imap.UID // new on the server, newest first
 }
@@ -465,7 +470,8 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 			rank = 2 // All Mail repeats most other folders, so by then it's mostly headers only
 		}
 		total += len(fresh)
-		work = append(work, folderWork{id, box.Mailbox, status, st.HighestModSeq, rank, fresh})
+		notify := rank == 0 && last != "" // inbox only, and never on its first sync (or a re-import)
+		work = append(work, folderWork{id, box.Mailbox, status, st.HighestModSeq, notify, rank, fresh})
 	}
 	// Folders gone from the server, deepest first.
 	var gone []string
@@ -517,6 +523,10 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 			return inbox, err
 		}
 	}
+	if len(j.fresh) > 0 && sy.onMail != nil {
+		sy.onMail(j.fresh)
+	}
+	j.fresh = nil
 	return inbox, sy.store.Prune(j.id)
 }
 
@@ -695,12 +705,19 @@ func (sy *Syncer) fetchBodies(c *imapclient.Client, l *link, j *job, w folderWor
 			log.Printf("sync %s: skipping UID %d in %s: %v", j.id, m.UID, w.path, err)
 			continue
 		}
+		seen := slices.Contains(m.Flags, imap.FlagSeen)
 		if err := sy.store.AddMessage(Incoming{
 			AccountID: j.id, MailboxID: w.mailboxID, UID: uint32(m.UID),
-			Seen: slices.Contains(m.Flags, imap.FlagSeen), Flagged: slices.Contains(m.Flags, imap.FlagFlagged),
+			Seen: seen, Flagged: slices.Contains(m.Flags, imap.FlagFlagged),
 			parsed: p,
 		}); err != nil {
 			return err
+		}
+		// Downloaded for the first time (copies only gain a location), so this is new mail, unless it's read or mine.
+		if w.notify && !seen && strings.ToLower(p.From.Email) != j.me {
+			n := NewMail{AccountID: j.id, From: cmp.Or(p.From.Name, p.From.Email), Subject: p.Subject, Snippet: snippet(p.Text)}
+			sy.store.db.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, j.id+"/"+p.HeaderID).Scan(&n.ThreadID)
+			j.fresh = append(j.fresh, n)
 		}
 	}
 	return nil

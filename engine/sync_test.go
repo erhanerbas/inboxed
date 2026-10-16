@@ -19,7 +19,7 @@ import (
 // cleanups put shortened timeouts back).
 func testSyncer(t *testing.T, s *Store) *Syncer {
 	t.Helper()
-	sy := NewSyncer(s, func() {})
+	sy := NewSyncer(s, func() {}, nil)
 	t.Cleanup(func() {
 		sy.mu.Lock()
 		ids := slices.Collect(maps.Keys(sy.jobs))

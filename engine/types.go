@@ -87,3 +87,12 @@ type Progress struct {
 	Total int    `json:"total"`
 	Error string `json:"error,omitempty"`
 }
+
+// NewMail is a message that just arrived in an inbox, for a notification.
+type NewMail struct {
+	AccountID string `json:"accountId"`
+	ThreadID  string `json:"threadId"`
+	From      string `json:"from"` // the sender's name, or address when there's none
+	Subject   string `json:"subject"`
+	Snippet   string `json:"snippet"`
+}
