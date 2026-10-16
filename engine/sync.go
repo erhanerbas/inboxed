@@ -25,6 +25,7 @@ var (
 	pollInterval  = 2 * time.Minute // servers without IDLE: check this often
 	retryMax      = 5 * time.Minute // longest wait between reconnects
 	fullInterval  = time.Hour       // how often every folder's flags are refreshed even where STATUS didn't change
+	bigImport     = 20              // this many new messages in a pass show import progress
 )
 
 // Syncer keeps every IMAP account in sync both ways: one goroutine and one connection per account.
@@ -489,8 +490,13 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 
 	slices.SortStableFunc(work, func(a, b folderWork) int { return cmp.Compare(a.rank, b.rank) })
 	done, before := 0, 0 // before: UIDs in the folders already finished
+	// Progress is for imports (an account's first sync, a big catch-up); a few new messages arrive quietly.
 	if total > 0 {
-		sy.update(j, func(p *Progress) { p.State, p.Done, p.Total = "importing", 0, total })
+		sy.update(j, func(p *Progress) {
+			if p.State == "importing" || total >= bigImport {
+				p.State, p.Done, p.Total = "importing", 0, total
+			}
+		})
 	}
 	for _, w := range work {
 		if len(w.uids) > 0 {
