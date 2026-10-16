@@ -1,6 +1,7 @@
 import { api, EngineError, follow, send } from "./engine";
 import { addresses, forwardBody, replyQuote } from "./format";
-import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, Thread, ThreadSummary } from "./types";
+import { deliver, setBadge, summarize } from "./notify";
+import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
 export const data = $state({
@@ -29,6 +30,7 @@ export const ui = $state({
   draft: { accountId: "", to: "", cc: "", subject: "", body: "" } as Draft,
   composeError: "", // why the compose panel couldn't send or save; shown in the panel
   composeKey: 0, // a new message re-mounts the panel (focus, state)
+  newMail: [] as NewMail[], // arrived since you last looked, newest first: the banner shows it
   forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
@@ -75,6 +77,7 @@ async function loadThread() {
 async function reload() {
   const [mailboxes] = await Promise.all([api<Mailbox[]>("/mailboxes"), loadList(), loadThread()]);
   data.mailboxes = mailboxes;
+  setBadge(mailboxes.filter((m) => m.role === "inbox").reduce((sum, m) => sum + m.unread, 0));
 }
 
 async function refreshAll() {
@@ -112,7 +115,7 @@ async function followChanges() {
   for (;;) {
     const opened = Date.now();
     try {
-      await follow(scheduleRefresh);
+      await follow(scheduleRefresh, newMail);
     } catch (err) {
       console.error(err);
     }
@@ -123,6 +126,24 @@ async function followChanges() {
     scheduleRefresh();
   }
 }
+
+// New mail: the banner always; a notification too when Inboxed isn't in front (in front, the banner is enough).
+function newMail(batch: NewMail[]) {
+  if (!batch.length) return;
+  ui.newMail = [...batch, ...ui.newMail].slice(0, 20);
+  if (!document.hasFocus()) deliver(summarize(batch, data.accounts));
+}
+
+/** The banner's Open: the newest mail's conversation, in its account's inbox. */
+export function openNewMail() {
+  const [m] = ui.newMail;
+  ui.newMail = [];
+  if (!m) return Promise.resolve();
+  selectAccount(m.accountId);
+  return openThread(m.threadId);
+}
+
+export const dismissNewMail = () => (ui.newMail = []);
 
 /** First load; also the status bar's "Try again". Opens the live connection once. */
 export const start = () => {
@@ -198,6 +219,7 @@ async function setFlags(id: string, flags: { unread?: boolean; starred?: boolean
 
 export function openThread(id: string) {
   ui.threadId = id;
+  ui.newMail = ui.newMail.filter((m) => m.threadId !== id); // read now: no banner for it
   return run(async () => {
     await loadThread();
     if (data.thread?.id === id && data.thread.unread) await setFlags(id, { unread: false });

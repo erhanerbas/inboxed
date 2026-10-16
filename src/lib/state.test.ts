@@ -21,6 +21,10 @@ const engine = vi.hoisted(() => {
     refuse: "" as string, // when set, writes to this path fail with a 400 "the server said no"
     gone: "" as string, // when set, GET /threads/<gone> is a 404
     emit: undefined as undefined | (() => void), // sends a change event, as the engine's stream would
+    mail: undefined as undefined | ((batch: unknown[]) => void), // sends a mail event
+    delivered: [] as unknown[], // notifications shown
+    badge: -1, // the Dock badge as last set
+    focused: true,
   };
 });
 
@@ -48,17 +52,25 @@ vi.mock("./engine", () => {
     api,
     send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
     EngineError,
-    follow: (onChange: () => void) => {
+    follow: (onChange: () => void, onMail: (batch: unknown[]) => void) => {
       engine.emit = onChange;
+      engine.mail = onMail;
       return new Promise<void>(() => {}); // stays connected
     },
   };
 });
 
+vi.mock("./notify", async (real) => ({
+  ...(await real<typeof import("./notify")>()),
+  deliver: async (n: unknown) => void engine.delivered.push(n),
+  setBadge: (n: number) => void (engine.badge = n),
+}));
+
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
-  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "", gone: "" });
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "", gone: "", delivered: [], badge: -1, focused: true });
+  vi.stubGlobal("document", { hasFocus: () => engine.focused }); // tests run in Node: no DOM
   engine.thread.unread = true;
   s = await import("./state.svelte");
   await s.start();
@@ -323,5 +335,44 @@ describe("attachments", () => {
     } finally {
       engine.thread.messages[1].attachments = [];
     }
+  });
+});
+
+describe("new mail", () => {
+  const batch = [{ accountId: "a2", threadId: "t1", from: "Maya Chen", subject: "Plans", snippet: "Free?" }];
+
+  it("while you're here: a banner, no notification", () => {
+    engine.mail?.(batch);
+    expect(s.ui.newMail).toEqual(batch);
+    expect(engine.delivered).toEqual([]);
+  });
+
+  it("while you're away: a notification, and the banner waits for you", async () => {
+    engine.focused = false;
+    engine.mail?.(batch);
+    await Promise.resolve();
+    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?" }]);
+    expect(s.ui.newMail).toEqual(batch);
+  });
+
+  it("Open goes to the account's inbox and the conversation, and clears the banner", async () => {
+    engine.mail?.(batch);
+    await s.openNewMail();
+    expect(s.ui.accountId).toBe("a2");
+    expect(s.ui.threadId).toBe("t1");
+    expect(s.ui.newMail).toEqual([]);
+  });
+
+  it("opening a banner whose thread is gone clears it", async () => {
+    engine.gone = "t1";
+    engine.mail?.(batch);
+    await s.openNewMail();
+    expect(s.ui.threadId).toBe(null);
+    expect(s.ui.newMail).toEqual([]);
+    expect(s.ui.error).toBe("");
+  });
+
+  it("the Dock badge counts unread mail in the inboxes", async () => {
+    expect(engine.badge).toBe(0); // set by start()'s reload
   });
 });

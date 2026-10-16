@@ -86,3 +86,6 @@ export type Draft = {
   draftId?: string;
   forwardOf?: string; // a message whose attachments go along
 };
+
+/** A message that just arrived in an inbox (the engine's "mail" event). */
+export type NewMail = { accountId: string; threadId: string; from: string; subject: string; snippet: string };

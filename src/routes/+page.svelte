@@ -2,6 +2,7 @@
   import { PencilEdit02Icon, SidebarLeft01Icon } from "@hugeicons/core-free-icons";
   import AddAccount from "$lib/components/AddAccount.svelte";
   import Compose from "$lib/components/Compose.svelte";
+  import NewMailBanner from "$lib/components/NewMailBanner.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
   import RemoveAccount from "$lib/components/RemoveAccount.svelte";
@@ -78,6 +79,8 @@
 
 <!-- A new message re-mounts the panel, so focus and its state start fresh. The {#if} sits inside the {#key} so it's
      the panel's own block: opening and closing animate (local transitions only play for their own block). -->
+<NewMailBanner />
+
 {#key ui.composeKey}
   {#if ui.composing}<Compose />{/if}
 {/key}
