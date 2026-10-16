@@ -1,0 +1,106 @@
+{
+  "accounts": [
+    { "id": "a1", "name": "Personal", "email": "you@example.com", "provider": "gmail", "color": "oklch(0.5 0.11 160)" },
+    { "id": "a2", "name": "Work", "email": "you@work.example", "provider": "outlook", "color": "oklch(0.5 0.12 250)" }
+  ],
+  "mailboxes": [
+    { "id": "a1-inbox", "accountId": "a1", "name": "Inbox", "role": "inbox", "parentId": null },
+    { "id": "a1-starred", "accountId": "a1", "name": "Starred", "role": "starred", "parentId": null },
+    { "id": "a1-drafts", "accountId": "a1", "name": "Drafts", "role": "drafts", "parentId": null },
+    { "id": "a1-sent", "accountId": "a1", "name": "Sent", "role": "sent", "parentId": null },
+    { "id": "a1-archive", "accountId": "a1", "name": "Archive", "role": "archive", "parentId": null },
+    { "id": "a1-spam", "accountId": "a1", "name": "Spam", "role": "spam", "parentId": null },
+    { "id": "a1-trash", "accountId": "a1", "name": "Trash", "role": "trash", "parentId": null },
+    { "id": "a1-receipts", "accountId": "a1", "name": "Receipts", "role": null, "parentId": null },
+    { "id": "a1-travel", "accountId": "a1", "name": "Travel", "role": null, "parentId": null },
+    { "id": "a1-travel-2026", "accountId": "a1", "name": "2026", "role": null, "parentId": "a1-travel" },
+    { "id": "a2-inbox", "accountId": "a2", "name": "Inbox", "role": "inbox", "parentId": null },
+    { "id": "a2-drafts", "accountId": "a2", "name": "Drafts", "role": "drafts", "parentId": null },
+    { "id": "a2-sent", "accountId": "a2", "name": "Sent Items", "role": "sent", "parentId": null },
+    { "id": "a2-archive", "accountId": "a2", "name": "Archive", "role": "archive", "parentId": null },
+    { "id": "a2-trash", "accountId": "a2", "name": "Deleted Items", "role": "trash", "parentId": null },
+    { "id": "a2-projects", "accountId": "a2", "name": "Projects", "role": null, "parentId": null },
+    { "id": "a2-projects-inboxed", "accountId": "a2", "name": "Inboxed", "role": null, "parentId": "a2-projects" },
+    { "id": "a2-projects-launch", "accountId": "a2", "name": "Launch", "role": null, "parentId": "a2-projects" }
+  ],
+  "threads": [
+    {
+      "id": "t1", "accountId": "a2", "mailboxIds": ["a2-inbox", "a2-projects-inboxed"],
+      "subject": "Inboxed design review: sidebar and thread view", "unread": true,
+      "messages": [
+        { "id": "m1", "minutesAgo": 2880, "from": { "name": "Maya Chen", "email": "maya@work.example" },
+          "to": [{ "name": "You", "email": "you@work.example" }, { "name": "Daniel Okafor", "email": "daniel@work.example" }],
+          "body": "Hi both,\n\nI've pushed the first pass of the sidebar and the thread view to the design file. The sidebar follows the reference we liked: an icon rail for accounts, then the mailbox tree with thin guide lines for nested folders.\n\nCould you take a look before Thursday?\n\nMaya" },
+        { "id": "m2", "minutesAgo": 1440, "from": { "name": "Daniel Okafor", "email": "daniel@work.example" },
+          "to": [{ "name": "Maya Chen", "email": "maya@work.example" }, { "name": "You", "email": "you@work.example" }],
+          "body": "Looks great. One question: do we show unread counts on every folder or only the inbox?\n\nOn Tue, Maya Chen wrote:\n> Could you take a look before Thursday?" },
+        { "id": "m3", "minutesAgo": 1200, "from": { "name": "You", "email": "you@work.example" },
+          "to": [{ "name": "Maya Chen", "email": "maya@work.example" }, { "name": "Daniel Okafor", "email": "daniel@work.example" }],
+          "body": "Every folder, but only the inbox count gets the accent colour. Everything else stays muted so the inbox reads first.\n\nOn Wed, Daniel Okafor wrote:\n> do we show unread counts on every folder or only the inbox?" },
+        { "id": "m4", "minutesAgo": 35, "from": { "name": "Maya Chen", "email": "maya@work.example" },
+          "to": [{ "name": "You", "email": "you@work.example" }, { "name": "Daniel Okafor", "email": "daniel@work.example" }],
+          "body": "Done. I updated both screens and collapsed older messages in long threads, so the latest reply is always the first thing you read.\n\nOn Wed, You wrote:\n> Every folder, but only the inbox count gets the accent colour.\n> Everything else stays muted so the inbox reads first." }
+      ]
+    },
+    {
+      "id": "t2", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-travel-2026"],
+      "subject": "Your flight to Lisbon is confirmed", "unread": true,
+      "messages": [
+        { "id": "m5", "minutesAgo": 120, "from": { "name": "Skyline Air", "email": "no-reply@skyline-air.example" },
+          "to": [{ "name": "You", "email": "you@example.com" }],
+          "body": "Booking reference: K7Q2XP\n\nOutbound: Fri 6 Nov, 07:40 to Lisbon\nReturn: Mon 9 Nov, 18:15\n\nYour boarding pass is attached. Online check-in opens 36 hours before departure.",
+          "attachments": [{ "name": "boarding-pass.pdf", "size": 182000 }, { "name": "image001.png", "size": 4200 }, { "name": "image001.png", "size": 3900 }] }
+      ]
+    },
+    {
+      "id": "t3", "accountId": "a1", "mailboxIds": ["a1-inbox"],
+      "subject": "Dinner on Saturday?", "starred": true,
+      "messages": [
+        { "id": "m6", "minutesAgo": 1620, "from": { "name": "Sam Rivera", "email": "sam@example.net" },
+          "to": [{ "name": "You", "email": "you@example.com" }],
+          "body": "Are you free Saturday? Thinking of the new place on Harbour Street, around 8." },
+        { "id": "m7", "minutesAgo": 1440, "from": { "name": "You", "email": "you@example.com" },
+          "to": [{ "name": "Sam Rivera", "email": "sam@example.net" }],
+          "body": "Saturday works. 8 is perfect, I'll book a table.\n\nOn Thu, Sam Rivera wrote:\n> Are you free Saturday? Thinking of the new place on Harbour Street, around 8." }
+      ]
+    },
+    {
+      "id": "t4", "accountId": "a2", "mailboxIds": ["a2-inbox"],
+      "subject": "Q4 roadmap: please review before Friday", "unread": true,
+      "messages": [
+        { "id": "m8", "minutesAgo": 300, "from": { "name": "Priya Nair", "email": "priya@work.example" },
+          "to": [{ "name": "You", "email": "you@work.example" }],
+          "body": "Hi,\n\nAttached are the Q4 roadmap draft and the estimates sheet. The two open questions are on page 3: whether Outlook support ships in the first release, and how much history we import by default.\n\nComments by Friday would be great.\n\nPriya",
+          "attachments": [{ "name": "roadmap-q4.pdf", "size": 2400000 }, { "name": "estimates.xlsx", "size": 48000 }] }
+      ]
+    },
+    {
+      "id": "t5", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-receipts"],
+      "subject": "Re: Fwd: Your receipt from Example Store for order #A-2026-10-12-000123 (3 items, shipped in two separate packages)",
+      "messages": [
+        { "id": "m9", "minutesAgo": 4320, "from": { "name": "Example Store", "email": "orders@store.example" },
+          "to": [{ "name": "You", "email": "you@example.com" }],
+          "body": "Thanks for your order. Track both packages here:\nhttps://store.example/orders/A-2026-10-12-000123/tracking?packages=PKG-88213-ZX,PKG-88214-ZY&utm_source=receipt&utm_medium=email\n\nItems: 3\nTotal: €84.97" }
+      ]
+    },
+    {
+      "id": "t6", "accountId": "a1", "mailboxIds": ["a1-sent"],
+      "subject": "Re: Apartment viewing",
+      "messages": [
+        { "id": "m10", "minutesAgo": 576000, "from": { "name": "You", "email": "you@example.com" },
+          "to": [{ "name": "Grace Bell", "email": "grace@lettings.example" }],
+          "body": "Thanks Grace, Tuesday at 6 works for me.\n\nOn Mon, Grace Bell wrote:\n> Would Tuesday at 6pm suit you for the viewing?" }
+      ]
+    },
+    {
+      "id": "t7", "accountId": "a2", "mailboxIds": ["a2-inbox"],
+      "subject": "Fwd: Brand guidelines",
+      "messages": [
+        { "id": "m11", "minutesAgo": 57600, "from": { "name": "Daniel Okafor", "email": "daniel@work.example" },
+          "to": [{ "name": "You", "email": "you@work.example" }],
+          "body": "-----Original Message-----\nFrom: Studio North <hello@studio-north.example>\nSubject: Brand guidelines\n\nHi Daniel, the final brand guidelines are attached. Let us know if anything is missing.",
+          "attachments": [{ "name": "brand-guidelines.pdf", "size": 5800000 }] }
+      ]
+    }
+  ]
+}
