@@ -42,12 +42,22 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // The engine keeps its database in the app data folder (~/Library/Application Support/dev.inboxed.app).
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let mut engine = app.shell().sidecar("inboxed-engine")?.env("INBOXED_DATA_DIR", &data_dir);
-            if cfg!(debug_assertions) {
-                engine = engine.env("INBOXED_SEED", "1"); // demo mail until Phase 3 adds real accounts
+            // Debug builds get their own subfolder, so demo mail never lands next to a real install's accounts.
+            let debug = cfg!(debug_assertions);
+            let mut data_dir = app.path().app_data_dir()?;
+            if debug {
+                data_dir.push("debug");
             }
+            std::fs::create_dir_all(&data_dir)?;
+            let engine = app
+                .shell()
+                .sidecar("inboxed-engine")?
+                .env("INBOXED_DATA_DIR", &data_dir)
+                // Development-only knobs, set explicitly so a variable exported in the shell can't reach the engine.
+                .env("INBOXED_SEED", if debug { "1" } else { "" }) // demo mail until Phase 3 adds real accounts
+                .env("INBOXED_ORIGINS", if debug { "http://localhost:1420" } else { "" }) // the Vite dev server
+                .env("INBOXED_PORT", "")
+                .env("INBOXED_TOKEN", "");
             let (mut events, child) = engine.spawn()?;
             let (tx, rx) = watch::channel(None);
             app.manage(EngineState { ready: rx, _child: Mutex::new(child) });

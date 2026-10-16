@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -44,12 +45,14 @@ func main() {
 		}
 	}
 
-	// INBOXED_PORT and INBOXED_TOKEN pin the address for browser development (npm run dev:engine). Tauri leaves them unset.
+	// INBOXED_PORT and INBOXED_TOKEN pin the address for browser development (npm run dev:engine). Rust clears both for
+	// the app, so a stray shell variable can never fix the token of a real install.
 	ln, err := net.Listen("tcp", "127.0.0.1:"+cmp.Or(os.Getenv("INBOXED_PORT"), "0"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	token := cmp.Or(os.Getenv("INBOXED_TOKEN"), rand.Text())
+	origins := strings.FieldsFunc(os.Getenv("INBOXED_ORIGINS"), func(r rune) bool { return r == ',' })
 
 	// Tauri talks to the engine over a pipe and closes it on exit; a terminal or /dev/null (npm run dev:engine) never does.
 	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeNamedPipe != 0 {
@@ -64,15 +67,27 @@ func main() {
 		"token": token,
 	})
 
-	log.Fatal(http.Serve(ln, withAuth(token, routes(store))))
+	log.Fatal(http.Serve(ln, withAuth(token, origins, routes(store))))
 }
 
-// withAuth adds CORS headers so the webview origin can call the engine, and
-// rejects any request that doesn't carry the session token.
-func withAuth(token string, next http.Handler) http.Handler {
+// withAuth lets only the app's own webview origins call the engine from a page (a site on the open web can't, even
+// with the token), and rejects any request without the session token. extraOrigins comes from INBOXED_ORIGINS,
+// which Rust sets to the Vite dev server in debug builds only.
+func withAuth(token string, extraOrigins []string, next http.Handler) http.Handler {
 	want := []byte("Bearer " + token)
+	allowed := map[string]bool{"tauri://localhost": true, "http://tauri.localhost": true}
+	for _, o := range extraOrigins {
+		allowed[o] = true
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if !allowed[origin] {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")

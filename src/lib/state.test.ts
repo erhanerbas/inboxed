@@ -101,6 +101,15 @@ describe("failures and races", () => {
     expect(s.ui.error).toBe("");
   });
 
+  it("a flag change that fails to save is undone, so the screen never shows unsaved state", async () => {
+    const { messages, ...summary } = structuredClone(engine.thread);
+    s.data.list = [{ ...summary, starred: false }];
+    engine.fail = true;
+    await s.toggleStar("t1");
+    expect(s.data.list[0].starred).toBe(false);
+    expect(s.ui.error).not.toBe("");
+  });
+
   it("a stale list response never replaces a newer one", async () => {
     engine.slow = true;
     s.ui.query = "old";

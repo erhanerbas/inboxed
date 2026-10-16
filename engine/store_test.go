@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -208,5 +209,74 @@ func TestMarkAllRead(t *testing.T) {
 	}
 	if got := unreadByMailbox(t, s); got["a1-inbox"]+got["a2-inbox"] != 0 {
 		t.Errorf("inboxes still unread: %v", got)
+	}
+}
+
+func TestStarredExcludesTrash(t *testing.T) {
+	s := newTestStore(t)
+	no := false
+	s.SetFlags("t3", &no, nil)
+	yes := true
+	s.SetFlags("t3", &yes, nil) // t3 is starred; make it unread so it counts
+	s.Move("t3", "trash")
+	if got, _ := s.Threads("all", "starred", ""); len(got) != 0 {
+		t.Errorf("trashed thread still in Starred: %v", ids(got))
+	}
+	if got := unreadByMailbox(t, s); got["a1-starred"] != 0 {
+		t.Errorf("trashed thread still counted in Starred: %d", got["a1-starred"])
+	}
+}
+
+func TestSearchRowsFollowThreads(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.db.Exec(`DELETE FROM accounts WHERE id = 'a2'`); err != nil {
+		t.Fatal(err)
+	}
+	var threads, rows int
+	s.db.QueryRow(`SELECT COUNT(*) FROM threads`).Scan(&threads)
+	s.db.QueryRow(`SELECT COUNT(*) FROM search`).Scan(&rows)
+	if threads != 4 || rows != threads {
+		t.Errorf("after removing an account: %d threads, %d search rows", threads, rows)
+	}
+}
+
+func TestRefusesNewerDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", len(migrations)+1))
+	s.Close()
+	if _, err := OpenStore(path); err == nil {
+		t.Error("an older engine opened a database written by a newer one")
+	}
+}
+
+// Writing a thread must not get slower as the store grows (Phase 4's first sync writes tens of thousands).
+func TestPutThreadDoesNotSlowWithSize(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing test")
+	}
+	s := newTestStore(t)
+	th, _ := s.Thread("t2")
+	put := func(from, to int) time.Duration {
+		start := time.Now()
+		for i := from; i < to; i++ {
+			th.ID = fmt.Sprintf("bulk-%d", i)
+			for j := range th.Messages {
+				th.Messages[j].ID = fmt.Sprintf("bulk-%d-%d", i, j)
+			}
+			if err := s.PutThread(th); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return time.Since(start)
+	}
+	early := put(0, 300)
+	put(300, 3000)
+	late := put(3000, 3300)
+	if late > 3*early {
+		t.Errorf("300 puts took %v at 3000 threads vs %v at the start: writes slow down as the store grows", late, early)
 	}
 }

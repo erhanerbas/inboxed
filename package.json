@@ -14,7 +14,7 @@
     "build:engine": "node scripts/build-engine.mjs",
     "test:engine": "cd engine && go test ./...",
     "test": "vitest run",
-    "dev:engine": "cd engine && INBOXED_DATA_DIR=../.dev-data INBOXED_SEED=1 INBOXED_PORT=4321 INBOXED_TOKEN=dev go run ."
+    "dev:engine": "cd engine && INBOXED_DATA_DIR=../.dev-data INBOXED_SEED=1 INBOXED_PORT=4321 INBOXED_TOKEN=dev INBOXED_ORIGINS=http://localhost:1420,http://127.0.0.1:1420 go run ."
   },
   "license": "MIT",
   "dependencies": {

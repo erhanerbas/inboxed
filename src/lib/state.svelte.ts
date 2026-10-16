@@ -93,10 +93,18 @@ export function toggleSidebar() {
   }
 }
 
-// Flips the flags here first so the unread dot and the star respond instantly, then saves and reloads.
+// Flips the flags here first so the unread dot and the star respond instantly, then saves and reloads. If saving
+// fails the flip is undone, so the screen never shows a change the engine doesn't have.
 async function setFlags(id: string, flags: { unread?: boolean; starred?: boolean }) {
-  for (const t of [...data.list, data.thread]) if (t?.id === id) Object.assign(t, flags);
-  await send(`/threads/${id}`, "PATCH", flags);
+  const touched = [...data.list, data.thread].filter((t) => t?.id === id) as ThreadSummary[];
+  const before = touched.map((t) => ({ unread: t.unread, starred: t.starred }));
+  touched.forEach((t) => Object.assign(t, flags));
+  try {
+    await send(`/threads/${id}`, "PATCH", flags);
+  } catch (err) {
+    touched.forEach((t, i) => Object.assign(t, before[i]));
+    throw err;
+  }
   await reload();
 }
 

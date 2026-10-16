@@ -37,7 +37,8 @@ var migrations = []string{
 		position INTEGER NOT NULL
 	);
 	CREATE TABLE threads (
-		id TEXT PRIMARY KEY,
+		doc INTEGER PRIMARY KEY, -- stable integer key; the search index row shares it
+		id TEXT NOT NULL UNIQUE,
 		account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
 		subject TEXT NOT NULL,
 		unread INTEGER NOT NULL DEFAULT 0,
@@ -65,7 +66,11 @@ var migrations = []string{
 		attachments TEXT NOT NULL
 	);
 	CREATE INDEX messages_thread ON messages(thread_id, date);
-	CREATE VIRTUAL TABLE search USING fts5(thread_id UNINDEXED, subject, people, body);`,
+	-- rowid = threads.doc, so replacing or removing a thread's search row is a key lookup, not a scan.
+	CREATE VIRTUAL TABLE search USING fts5(subject, people, body);
+	CREATE TRIGGER threads_search_cleanup AFTER DELETE ON threads BEGIN
+		DELETE FROM search WHERE rowid = old.doc;
+	END;`,
 }
 
 type Store struct{ db *sql.DB }
@@ -91,6 +96,9 @@ func (s *Store) migrate() error {
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
+	}
+	if version > len(migrations) {
+		return fmt.Errorf("database schema %d is newer than this engine understands (%d); update Inboxed", version, len(migrations))
 	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := s.db.Begin()
@@ -133,24 +141,28 @@ func (s *Store) PutThread(t Thread) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`
+	var doc int64
+	if err := tx.QueryRow(`
 		INSERT INTO threads (id, account_id, subject, unread, starred, snippet, participants, last_date, has_attachments)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, unread = excluded.unread, starred = excluded.starred,
 			snippet = excluded.snippet, participants = excluded.participants, last_date = excluded.last_date,
-			has_attachments = excluded.has_attachments`,
+			has_attachments = excluded.has_attachments
+		RETURNING doc`,
 		t.ID, t.AccountID, t.Subject, t.Unread, t.Starred, snippet(last.Body),
-		toJSON(participants(t.Messages, me)), last.Date, attached); err != nil {
+		toJSON(participants(t.Messages, me)), last.Date, attached).Scan(&doc); err != nil {
 		return err
 	}
 	for _, q := range []string{
 		`DELETE FROM thread_mailboxes WHERE thread_id = ?`,
 		`DELETE FROM messages WHERE thread_id = ?`,
-		`DELETE FROM search WHERE thread_id = ?`,
 	} {
 		if _, err := tx.Exec(q, t.ID); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec(`DELETE FROM search WHERE rowid = ?`, doc); err != nil {
+		return err
 	}
 	for _, m := range t.MailboxIDs {
 		if _, err := tx.Exec(`INSERT INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, t.ID, m); err != nil {
@@ -171,8 +183,8 @@ func (s *Store) PutThread(t Thread) error {
 		}
 		bodies = append(bodies, m.Body)
 	}
-	if _, err := tx.Exec(`INSERT INTO search (thread_id, subject, people, body) VALUES (?, ?, ?, ?)`,
-		t.ID, t.Subject, strings.Join(people, " "), strings.Join(bodies, "\n")); err != nil {
+	if _, err := tx.Exec(`INSERT INTO search (rowid, subject, people, body) VALUES (?, ?, ?, ?)`,
+		doc, t.Subject, strings.Join(people, " "), strings.Join(bodies, "\n")); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -280,7 +292,8 @@ func (s *Store) Mailboxes() ([]Mailbox, error) {
 	rows, err := s.db.Query(`
 		SELECT m.id, m.account_id, m.name, m.role, m.parent_id,
 			CASE WHEN m.role = 'starred'
-				THEN (SELECT COUNT(*) FROM threads t WHERE t.account_id = m.account_id AND t.starred AND t.unread)
+				THEN (SELECT COUNT(*) FROM threads t WHERE t.account_id = m.account_id AND t.starred AND t.unread
+					AND ` + notTrashed + `)
 				ELSE (SELECT COUNT(*) FROM thread_mailboxes tm JOIN threads t ON t.id = tm.thread_id
 					WHERE tm.mailbox_id = m.id AND t.unread)
 			END
@@ -307,6 +320,10 @@ func (s *Store) Mailboxes() ([]Mailbox, error) {
 	return out, rows.Err()
 }
 
+// notTrashed keeps trashed threads out of flag-based views like Starred.
+const notTrashed = `NOT EXISTS (SELECT 1 FROM thread_mailboxes tm JOIN mailboxes m ON m.id = tm.mailbox_id
+	WHERE tm.thread_id = t.id AND m.role = 'trash')`
+
 // filter turns a sidebar entry into a WHERE clause over threads t. accountID "all" is the unified view, where key
 // is a role; otherwise key is one of that account's mailbox ids. Starred is a flag, not a folder.
 func (s *Store) filter(accountID, key string) (string, []any, error) {
@@ -323,9 +340,9 @@ func (s *Store) filter(accountID, key string) (string, []any, error) {
 	}
 	switch {
 	case role == "starred" && accountID == "all":
-		return `t.starred`, nil, nil
+		return `t.starred AND ` + notTrashed, nil, nil
 	case role == "starred":
-		return `t.starred AND t.account_id = ?`, []any{accountID}, nil
+		return `t.starred AND t.account_id = ? AND ` + notTrashed, []any{accountID}, nil
 	case accountID == "all":
 		return `t.id IN (SELECT tm.thread_id FROM thread_mailboxes tm JOIN mailboxes m ON m.id = tm.mailbox_id
 			WHERE m.role = ?)`, []any{key}, nil
@@ -341,7 +358,7 @@ func (s *Store) Threads(accountID, key, query string) ([]Thread, error) {
 		return nil, err
 	}
 	if q := ftsQuery(query); q != "" {
-		where += ` AND t.id IN (SELECT thread_id FROM search WHERE search MATCH ?)`
+		where += ` AND t.doc IN (SELECT rowid FROM search WHERE search MATCH ?)`
 		args = append(args, q)
 	}
 	rows, err := s.db.Query(`SELECT `+summaryColumns+` FROM threads t WHERE `+where+` ORDER BY t.last_date DESC`, args...)
