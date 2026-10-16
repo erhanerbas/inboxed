@@ -3,11 +3,12 @@ package main
 // The API contract. Field names and shapes mirror src/lib/types.ts.
 
 type Account struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Provider string `json:"provider"`
-	Color    string `json:"color"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Email    string    `json:"email"`
+	Provider string    `json:"provider"`
+	Color    string    `json:"color"`
+	Sync     *Progress `json:"sync,omitempty"` // set while the engine has imported this account since it started
 }
 
 type Mailbox struct {
@@ -53,4 +54,29 @@ type Thread struct {
 	Starred        bool      `json:"starred"`
 	HasAttachments bool      `json:"hasAttachments"`
 	Messages       []Message `json:"messages,omitempty"`
+}
+
+// Server is one side of a mail account: where to connect and how to secure the connection.
+type Server struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Security string `json:"security"` // "tls" (implicit), "starttls", or "none" (this computer only)
+}
+
+// AccountSettings is what the add-account form sends. The password goes to the keychain and never comes back out.
+type AccountSettings struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Username string `json:"username"` // empty means the email address
+	Password string `json:"password,omitempty"`
+	IMAP     Server `json:"imap"`
+	SMTP     Server `json:"smtp"`
+}
+
+// Progress is an account's import as the UI shows it.
+type Progress struct {
+	State string `json:"state"` // "importing", "done" or "error"
+	Done  int    `json:"done"`
+	Total int    `json:"total"`
+	Error string `json:"error,omitempty"`
 }

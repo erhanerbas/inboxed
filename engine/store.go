@@ -71,6 +71,20 @@ var migrations = []string{
 	CREATE TRIGGER threads_search_cleanup AFTER DELETE ON threads BEGIN
 		DELETE FROM search WHERE rowid = old.doc;
 	END;`,
+	`ALTER TABLE accounts ADD COLUMN username TEXT NOT NULL DEFAULT '';
+	ALTER TABLE accounts ADD COLUMN imap TEXT NOT NULL DEFAULT '{}';
+	ALTER TABLE accounts ADD COLUMN smtp TEXT NOT NULL DEFAULT '{}';
+	ALTER TABLE mailboxes ADD COLUMN path TEXT; -- the server's name for the folder; NULL for local entries like Starred
+	ALTER TABLE mailboxes ADD COLUMN uid_validity INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE messages ADD COLUMN header_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE messages ADD COLUMN subject TEXT NOT NULL DEFAULT '';
+	-- Where each message lives on the server. Importing skips anything already here, which makes it resumable.
+	CREATE TABLE message_locations (
+		mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+		uid INTEGER NOT NULL,
+		message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+		PRIMARY KEY (mailbox_id, uid)
+	);`,
 }
 
 type Store struct{ db *sql.DB }
