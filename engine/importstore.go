@@ -18,6 +18,9 @@ type parsed struct {
 	Date        time.Time
 	Text        string
 	Attachments []Attachment
+	HTML        string   // the HTML part, as sent; rendered only in a sandboxed frame
+	Refs        []string // every Message-ID it refers to (References, then In-Reply-To), for threading
+	Files       [][]byte // attachment content, parallel to Attachments
 }
 
 // Incoming is one message as the importer found it on the server.

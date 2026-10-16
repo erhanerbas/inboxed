@@ -90,3 +90,52 @@ func TestBareAddressShowsAsItself(t *testing.T) {
 		t.Errorf("from %+v to %+v (%v)", p.From, p.To, err)
 	}
 }
+
+// richMessage is a multipart/related HTML message with a plain alternative, an inline cid image and a PDF.
+var richMessage = crlf("From: Maya Chen <maya@example.com>\nTo: You <you@example.com>\nSubject: Menu\n" +
+	"Message-ID: <m1@example.com>\nReferences: <a@x> <b@x>\nIn-Reply-To: <c@x>\nDate: Thu, 15 Oct 2026 10:00:00 +0000\n" +
+	"MIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=outer\n\n" +
+	"--outer\nContent-Type: multipart/related; boundary=rel\n\n" +
+	"--rel\nContent-Type: multipart/alternative; boundary=alt\n\n" +
+	"--alt\nContent-Type: text/plain; charset=utf-8\n\nThe menu, attached.\n" +
+	"--alt\nContent-Type: text/html; charset=utf-8\n\n<p>The <b>menu</b>, attached.</p><img src=\"cid:logo@x\">\n" +
+	"--alt--\n" +
+	"--rel\nContent-Type: image/png\nContent-ID: <logo@x>\nContent-Transfer-Encoding: base64\n\niVBORw0KGgo=\n" +
+	"--rel--\n" +
+	"--outer\nContent-Type: application/pdf\nContent-Disposition: attachment; filename=menu.pdf\n\n%PDF-1.4 tiny\n" +
+	"--outer--\n")
+
+func TestParseKeepsHTMLAndText(t *testing.T) {
+	p, err := parseMessage(richMessage, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.HTML, "<b>menu</b>") || p.Text != "The menu, attached." {
+		t.Errorf("html %q, text %q", p.HTML, p.Text)
+	}
+	p, _ = parseMessage(crlf("From: a@x\nContent-Type: text/html\n\n<p>Only <i>HTML</i></p>\n"), fallback)
+	if p.Text != "Only HTML" || !strings.Contains(p.HTML, "<i>HTML</i>") {
+		t.Errorf("html-only: text %q html %q", p.Text, p.HTML)
+	}
+}
+
+func TestParseKeepsAttachmentContent(t *testing.T) {
+	p, _ := parseMessage(richMessage, fallback)
+	if len(p.Attachments) != 2 || len(p.Files) != 2 {
+		t.Fatalf("attachments %+v, %d files", p.Attachments, len(p.Files))
+	}
+	logo, pdf := p.Attachments[0], p.Attachments[1]
+	if logo.CID != "logo@x" || !logo.Inline || logo.Type != "image/png" || string(p.Files[0][:4]) != "\x89PNG" {
+		t.Errorf("inline image %+v", logo)
+	}
+	if pdf.Name != "menu.pdf" || pdf.Type != "application/pdf" || pdf.Inline || string(p.Files[1]) != "%PDF-1.4 tiny" {
+		t.Errorf("pdf %+v %q", pdf, p.Files[1])
+	}
+}
+
+func TestParseRefs(t *testing.T) {
+	p, _ := parseMessage(richMessage, fallback)
+	if strings.Join(p.Refs, " ") != "a@x b@x c@x" || p.Root != "a@x" {
+		t.Errorf("refs %v root %q", p.Refs, p.Root)
+	}
+}

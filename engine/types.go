@@ -26,8 +26,12 @@ type Address struct {
 }
 
 type Attachment struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Type   string `json:"type"`
+	CID    string `json:"cid,omitempty"`    // Content-ID, how the HTML refers to an inline image
+	Hash   string `json:"hash,omitempty"`   // the content's file under <data dir>/attachments
+	Inline bool   `json:"inline,omitempty"` // shown in the HTML, so not listed as an attachment
 }
 
 type Message struct {
