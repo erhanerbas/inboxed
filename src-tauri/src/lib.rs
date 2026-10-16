@@ -41,7 +41,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            let (mut events, child) = app.shell().sidecar("inboxed-engine")?.spawn()?;
+            // The engine keeps its database in the app data folder (~/Library/Application Support/dev.inboxed.app).
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let mut engine = app.shell().sidecar("inboxed-engine")?.env("INBOXED_DATA_DIR", &data_dir);
+            if cfg!(debug_assertions) {
+                engine = engine.env("INBOXED_SEED", "1"); // demo mail until Phase 3 adds real accounts
+            }
+            let (mut events, child) = engine.spawn()?;
             let (tx, rx) = watch::channel(None);
             app.manage(EngineState { ready: rx, _child: Mutex::new(child) });
 
