@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -112,5 +113,22 @@ func TestAccountsAPI(t *testing.T) {
 	}
 	if res := call("DELETE", "/accounts/"+a.ID, ""); res.StatusCode != 404 {
 		t.Errorf("DELETE twice: %d", res.StatusCode)
+	}
+}
+
+func TestEscapedThreadID(t *testing.T) {
+	imapSrv, smtpSrv, _ := testServers(t)
+	h, _, im := testRoutes(t)
+	a, err := im.AddAccount(AccountSettings{Email: "you@example.com", Password: "secret", IMAP: imapSrv, SMTP: smtpSrv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitImport(t, im, a.ID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/threads/"+url.PathEscape(a.ID+"/d1@example.com"), nil))
+	var th Thread
+	json.NewDecoder(rec.Body).Decode(&th)
+	if rec.Code != 200 || len(th.Messages) != 3 {
+		t.Errorf("GET an escaped thread id: %d, %d messages", rec.Code, len(th.Messages))
 	}
 }

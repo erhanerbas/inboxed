@@ -168,3 +168,10 @@ describe("accounts", () => {
     expect(writes()).toContainEqual({ path: "/accounts/a2/import", method: "POST", body: undefined });
   });
 });
+
+describe("ids in URLs", () => {
+  it("escapes thread ids, which contain a slash for IMAP mail", async () => {
+    await s.openThread("acc-1/d1@example.com");
+    expect(engine.calls.some((c) => c.path === "/threads/acc-1%2Fd1%40example.com")).toBe(true);
+  });
+});

@@ -53,7 +53,7 @@ async function loadList() {
 
 async function loadThread() {
   const id = ui.threadId;
-  const thread = id ? await api<Thread>(`/threads/${id}`) : null;
+  const thread = id ? await api<Thread>(`/threads/${encodeURIComponent(id)}`) : null;
   if (ui.threadId === id) data.thread = thread;
 }
 
@@ -95,14 +95,14 @@ export async function addAccount(settings: AccountSettings): Promise<string | nu
 
 export const removeAccount = (id: string) =>
   run(async () => {
-    await api(`/accounts/${id}`, { method: "DELETE" });
+    await api(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (ui.accountId === id) selectAccount("all");
     await refreshAll();
   });
 
 export const retryImport = (id: string) =>
   run(async () => {
-    await api(`/accounts/${id}/import`, { method: "POST" });
+    await api(`/accounts/${encodeURIComponent(id)}/import`, { method: "POST" });
     await refreshAll();
   });
 
@@ -137,7 +137,7 @@ async function setFlags(id: string, flags: { unread?: boolean; starred?: boolean
   const before = touched.map((t) => ({ unread: t.unread, starred: t.starred }));
   touched.forEach((t) => Object.assign(t, flags));
   try {
-    await send(`/threads/${id}`, "PATCH", flags);
+    await send(`/threads/${encodeURIComponent(id)}`, "PATCH", flags);
   } catch (err) {
     touched.forEach((t, i) => Object.assign(t, before[i]));
     throw err;
@@ -168,7 +168,7 @@ export const markAllRead = (accountId: string, key: string) =>
 
 function move(id: string, to: "archive" | "trash" | "inbox") {
   return run(async () => {
-    await send(`/threads/${id}/move`, "POST", { to });
+    await send(`/threads/${encodeURIComponent(id)}/move`, "POST", { to });
     if (to !== "inbox" && ui.threadId === id) ui.threadId = null;
     await reload();
   });
@@ -185,7 +185,7 @@ export function compose(draft = { to: "", subject: "" }) {
 
 const prefixed = (prefix: string, subject: string) =>
   subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
-const fullThread = async (id: string) => (data.thread?.id === id ? data.thread : api<Thread>(`/threads/${id}`));
+const fullThread = async (id: string) => (data.thread?.id === id ? data.thread : api<Thread>(`/threads/${encodeURIComponent(id)}`));
 
 export const reply = (id: string, all = false) =>
   run(async () => {

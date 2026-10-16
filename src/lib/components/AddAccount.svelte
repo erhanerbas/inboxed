@@ -80,13 +80,14 @@
 </dialog>
 
 {#snippet server(side: "imap" | "smtp", legend: string)}
-  <fieldset class="mt-2 grid grid-cols-[1fr_5.5rem] gap-3">
+  <!-- Server, port and security on one row: the three always change together. -->
+  <fieldset class="mt-2 grid grid-cols-[1fr_4.5rem_7rem] gap-3">
     <legend class="mb-2 text-caption font-medium text-ink-muted uppercase">{legend}</legend>
     <label class="stack-field">
       Server<input required bind:value={settings[side].host} placeholder="{side}.example.com" autocomplete="off" />
     </label>
     <label class="stack-field">Port<input type="number" required min="1" max="65535" bind:value={settings[side].port} /></label>
-    <label class="stack-field col-span-2">
+    <label class="stack-field">
       Security
       <select
         value={settings[side].security}
