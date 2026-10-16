@@ -87,6 +87,20 @@ var migrations = []string{
 	);`,
 	// Deleting messages (removing an account) cascades through message_locations by message_id.
 	`CREATE INDEX message_locations_message ON message_locations(message_id);`,
+	`ALTER TABLE message_locations ADD COLUMN seen INTEGER NOT NULL DEFAULT 1;
+	ALTER TABLE message_locations ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0;
+	-- The folder's last STATUS (uidvalidity/messages/uidnext/unseen). Unchanged means there's nothing to sync there.
+	ALTER TABLE mailboxes ADD COLUMN status TEXT NOT NULL DEFAULT '';
+	-- Local actions on IMAP accounts waiting to reach the server, oldest first.
+	CREATE TABLE pending_changes (
+		id INTEGER PRIMARY KEY,
+		account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+		thread_id TEXT NOT NULL, -- no foreign key: the thread may be gone by the time the change is sent
+		kind TEXT NOT NULL,      -- 'seen', 'flagged' or 'move'
+		value TEXT NOT NULL,     -- '1'/'0', or archive|trash|inbox
+		attempts INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX pending_changes_thread ON pending_changes(thread_id);`,
 }
 
 type Store struct{ db *sql.DB }
