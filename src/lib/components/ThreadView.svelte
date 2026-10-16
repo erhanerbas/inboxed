@@ -13,7 +13,8 @@
   import Icon from "./Icon.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
-  import { archive, data, editDraft, forward, reply, toggleStar, trash, ui } from "$lib/state.svelte";
+  import { archive, data, editDraft, forward, openAttachment, reply, toggleStar, trash, ui } from "$lib/state.svelte";
+  import HtmlBody from "./HtmlBody.svelte";
   import { formatDate, formatSize } from "$lib/format";
   import { splitQuoted, unquote } from "$lib/quote";
   import type { Address, Message } from "$lib/types";
@@ -110,6 +111,9 @@
 
               {#if open}
                 <div class="selectable mt-4 text-read wrap-anywhere">
+                  {#if m.html}
+                    <HtmlBody html={m.html} />
+                  {:else}
                   {#if body.text}
                     <p class="max-w-[68ch] whitespace-pre-wrap">{body.text}</p>
                   {/if}
@@ -128,14 +132,23 @@
                       {unquote(body.quoted)}
                     </p>
                   {/if}
-                  {#if m.attachments.length}
-                    <ul class="mt-4 flex flex-wrap gap-2">
-                      {#each m.attachments as a}
-                        <li class="flex items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 text-caption">
-                          <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
-                          {a.name}
-                          <span class="text-ink-muted">{formatSize(a.size)}</span>
-                        </li>
+                  {/if}
+                  {#if m.attachments.some((a) => !a.inline)}
+                    <ul class="mt-4 flex flex-wrap gap-2" aria-label="Attachments">
+                      {#each m.attachments as a, i (i)}
+                        {#if !a.inline}
+                          <li>
+                            <button
+                              class="flex items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 text-caption transition-colors duration-100 hover:bg-raised/70 active:bg-selected"
+                              title="Save to Downloads and show it"
+                              onclick={() => openAttachment(m.id, i)}
+                            >
+                              <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
+                              {a.name}
+                              <span class="text-ink-muted">{formatSize(a.size)}</span>
+                            </button>
+                          </li>
+                        {/if}
                       {/each}
                     </ul>
                   {/if}

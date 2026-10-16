@@ -1,6 +1,6 @@
 import { api, EngineError, follow, send } from "./engine";
 import { addresses, forwardBody, replyQuote } from "./format";
-import type { Account, AccountSettings, Draft, Mailbox, Message, Thread, ThreadSummary } from "./types";
+import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
 export const data = $state({
@@ -29,6 +29,7 @@ export const ui = $state({
   draft: { accountId: "", to: "", cc: "", subject: "", body: "" } as Draft,
   composeError: "", // why the compose panel couldn't send or save; shown in the panel
   composeKey: 0, // a new message re-mounts the panel (focus, state)
+  forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
   error: "", // shown by the status bar in +page.svelte
@@ -239,6 +240,7 @@ export async function compose(draft: Partial<Draft> = {}) {
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
   pristine = JSON.stringify(ui.draft);
+  ui.forwarding = [];
   ui.composeError = "";
   ui.composeKey++;
   ui.composing = true;
@@ -304,7 +306,9 @@ export async function editDraft(m: Message) {
     body: m.body,
     threadId: reply ? m.threadId : undefined,
     draftId: m.id,
+    forwardOf: m.attachments.length ? m.id : undefined, // a saved forward keeps its attachments
   });
+  ui.forwarding = m.attachments;
 }
 
 // The message a reply or forward is about: the newest that isn't a draft of mine.
@@ -333,5 +337,25 @@ export const forward = (id: string) =>
   run(async () => {
     const thread = await fullThread(id);
     const last = lastSent(thread);
-    await compose({ accountId: thread.accountId, subject: prefixed("Fwd:", thread.subject), body: forwardBody(last, thread.subject) });
+    await compose({
+      accountId: thread.accountId,
+      subject: prefixed("Fwd:", thread.subject),
+      body: forwardBody(last, thread.subject),
+      forwardOf: last.attachments.length ? last.id : undefined,
+    });
+    ui.forwarding = last.attachments;
   });
+
+/** Saves an attachment to Downloads and shows it in the file manager (the engine does both). */
+export async function openAttachment(messageId: string, index: number) {
+  try {
+    await api(`/messages/${encodeURIComponent(messageId)}/attachments/${index}/open`, { method: "POST" });
+    ui.error = "";
+  } catch (err) {
+    console.error(err);
+    ui.error =
+      err instanceof EngineError && err.status === 404
+        ? "Inboxed doesn't have this attachment's content."
+        : "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.";
+  }
+}

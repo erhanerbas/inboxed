@@ -8,7 +8,7 @@ const engine = vi.hoisted(() => {
     lastDate: "2026-10-15T13:25:00.000Z", unread: true, starred: false, hasAttachments: false,
     messages: [
       { id: "m1", threadId: "t1", from: { name: "You", email: "you@work.example" }, to: [{ name: "Maya Chen", email: "maya@work.example" }], cc: [], date: "2026-10-14T10:00:00.000Z", body: "Hi", attachments: [] },
-      { id: "m2", threadId: "t1", from: { name: "Maya Chen", email: "maya@work.example" }, to: [{ name: "You", email: "you@work.example" }], cc: [], date: "2026-10-15T13:25:00.000Z", body: "Done.", attachments: [] },
+      { id: "m2", threadId: "t1", from: { name: "Maya Chen", email: "maya@work.example" }, to: [{ name: "You", email: "you@work.example" }], cc: [], date: "2026-10-15T13:25:00.000Z", body: "Done.", attachments: [] as { name: string; size: number }[] },
     ],
   };
   return {
@@ -305,5 +305,23 @@ describe("an open thread that's gone", () => {
     expect(s.ui.threadId).toBe(null);
     expect(s.data.thread).toBe(null);
     expect(s.ui.error).toBe("");
+  });
+});
+
+describe("attachments", () => {
+  it("open asks the engine to save and show it", async () => {
+    await s.openAttachment("a2/m@x", 0);
+    expect(writes()).toEqual([{ path: "/messages/a2%2Fm%40x/attachments/0/open", method: "POST", body: undefined }]);
+  });
+
+  it("forward takes the original's attachments along", async () => {
+    engine.thread.messages[1].attachments = [{ name: "menu.pdf", size: 9 }];
+    try {
+      await s.forward("t1");
+      expect(s.ui.draft.forwardOf).toBe("m2");
+      expect(s.ui.forwarding.map((a) => a.name)).toEqual(["menu.pdf"]);
+    } finally {
+      engine.thread.messages[1].attachments = [];
+    }
   });
 });
