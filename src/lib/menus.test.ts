@@ -10,6 +10,7 @@ vi.mock("./engine", () => {
   return {
     api,
     send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
+    follow: () => new Promise<void>(() => {}),
     EngineError: Error,
   };
 });

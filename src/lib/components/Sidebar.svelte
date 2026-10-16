@@ -17,7 +17,7 @@
   import Avatar from "./Avatar.svelte";
   import { contextmenu } from "$lib/contextmenu";
   import { accountMenu, markAllReadMenu } from "$lib/menus";
-  import { data, retryImport, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
+  import { data, syncNow, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
   import { ROLES, visibleMailboxes } from "$lib/views";
   import type { Mailbox } from "$lib/types";
 
@@ -113,10 +113,10 @@
         <progress class="import mt-1.5" max={total || undefined} value={total ? done : undefined} aria-label="Import progress"
         ></progress>
       {:else if account?.sync?.state === "error"}
-        <p class="text-caption text-ink-muted wrap-anywhere">Import stopped: {account.sync.error}</p>
+        <p class="text-caption text-ink-muted wrap-anywhere">Couldn't sync: {account.sync.error}</p>
         <button
           class="mt-1 text-caption font-medium text-ink underline underline-offset-2"
-          onclick={() => retryImport(account.id)}
+          onclick={() => syncNow(account.id)}
         >
           Try again
         </button>

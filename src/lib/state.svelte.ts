@@ -1,4 +1,4 @@
-import { api, EngineError, send } from "./engine";
+import { api, EngineError, follow, send } from "./engine";
 import type { Account, AccountSettings, Mailbox, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
@@ -63,22 +63,50 @@ async function reload() {
   data.mailboxes = mailboxes;
 }
 
-let pollTimer: ReturnType<typeof setTimeout> | undefined;
-
-// ponytail: polls while an import runs; Phase 4's Server-Sent Events replace this.
-function pollWhileImporting() {
-  clearTimeout(pollTimer);
-  if (data.accounts.some((a) => a.sync?.state === "importing")) pollTimer = setTimeout(() => run(refreshAll), 1500);
-}
-
 async function refreshAll() {
   data.accounts = await api<Account[]>("/accounts");
   await reload();
-  pollWhileImporting();
 }
 
-/** First load; also the status bar's "Try again". */
-export const start = () => run(refreshAll);
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+// A burst of engine events (a big import reports often) becomes at most one reload per 300 ms.
+function scheduleRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined;
+    run(refreshAll);
+  }, 300);
+}
+
+let following = false;
+
+// Stays connected to the engine's change stream, reconnecting with backoff (1 s up to 30 s) after a drop, and
+// reloading once on reconnect so nothing missed while away is lost.
+async function followChanges() {
+  if (following) return;
+  following = true;
+  let delay = 1000;
+  for (;;) {
+    try {
+      await follow(() => {
+        delay = 1000;
+        scheduleRefresh();
+      });
+    } catch (err) {
+      console.error(err);
+    }
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 30_000);
+    scheduleRefresh();
+  }
+}
+
+/** First load; also the status bar's "Try again". Opens the live connection once. */
+export const start = () => {
+  followChanges();
+  return run(refreshAll);
+};
 
 /** Adds an IMAP/SMTP account. Resolves to a message for the form when the engine refuses, or null when added. */
 export async function addAccount(settings: AccountSettings): Promise<string | null> {
@@ -101,9 +129,9 @@ export const removeAccount = (id: string) =>
     await refreshAll();
   });
 
-export const retryImport = (id: string) =>
+export const syncNow = (id: string) =>
   run(async () => {
-    await api(`/accounts/${encodeURIComponent(id)}/import`, { method: "POST" });
+    await api(`/accounts/${encodeURIComponent(id)}/sync`, { method: "POST" });
     await refreshAll();
   });
 

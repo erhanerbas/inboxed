@@ -40,3 +40,35 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const send = (path: string, method: string, body: unknown) =>
   api<void>(path, { method, body: JSON.stringify(body) });
+
+/** Splits a Server-Sent Events buffer into the names of its complete events and the unfinished rest. */
+export function parseEvents(buffer: string): { names: string[]; rest: string } {
+  const blocks = buffer.split("\n\n");
+  const rest = blocks.pop() ?? "";
+  const names = blocks.flatMap((block) =>
+    block
+      .split("\n")
+      .filter((line) => line.startsWith("event: "))
+      .map((line) => line.slice("event: ".length)),
+  );
+  return { names, rest };
+}
+
+/**
+ * Follows the engine's change stream, calling onChange for every change event, until the stream ends or fails.
+ * fetch rather than EventSource, because EventSource can't send the token (and it must never go in a URL).
+ */
+export async function follow(onChange: () => void): Promise<void> {
+  const { url, token } = await (engine ??= connect());
+  const res = await fetch(url + "/events", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok || !res.body) throw new EngineError(res.status, "The engine's event stream isn't available.");
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    const parsed = parseEvents(buffer + value);
+    buffer = parsed.rest;
+    if (parsed.names.includes("change")) onChange();
+  }
+}
