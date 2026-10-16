@@ -257,3 +257,33 @@ func refreshThread(tx *sql.Tx, id string) error {
 		doc, subject, strings.Join(people, " "), strings.Join(bodies, "\n"))
 	return err
 }
+
+// AddLocation records that a message already stored also lives in another folder (a Gmail label, All Mail), without
+// downloading it again. It reports false when the message isn't stored yet, so its body must be fetched.
+func (s *Store) AddLocation(accountID, mailboxID string, uid uint32, headerID string, seen, flagged bool) (bool, error) {
+	msgID := accountID + "/" + headerID
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var threadID string
+	err = tx.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&threadID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id) VALUES (?, ?, ?)`,
+		mailboxID, uid, msgID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, threadID, mailboxID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`UPDATE threads SET unread = unread OR ?, starred = starred OR ? WHERE id = ?`,
+		!seen, flagged, threadID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}

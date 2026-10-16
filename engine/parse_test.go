@@ -65,3 +65,21 @@ func TestParseWithoutMessageIDOrDate(t *testing.T) {
 		t.Error("the stand-in id must be stable, or a re-import duplicates the message")
 	}
 }
+
+func TestParseUnknownCharsetsAndEncodings(t *testing.T) {
+	single := crlf("From: a@example.com\nSubject: Odd\nMessage-ID: <u1@example.com>\nContent-Type: text/plain; charset=unknown-8bit\n\nHello there\n")
+	p, err := parseMessage(single, fallback)
+	if err != nil || p.Text != "Hello there" {
+		t.Errorf("unknown charset, single part: %q, %v", p.Text, err)
+	}
+	multi := crlf("From: a@example.com\nSubject: Odd\nMessage-ID: <u2@example.com>\nContent-Type: multipart/mixed; boundary=b\n\n" +
+		"--b\nContent-Type: text/plain; charset=x-unknown\n\nSee attached\n--b\nContent-Type: application/pdf\nContent-Disposition: attachment; filename=a.pdf\n\n%PDF\n--b--\n")
+	p, err = parseMessage(multi, fallback)
+	if err != nil || p.Text != "See attached" || len(p.Attachments) != 1 {
+		t.Errorf("unknown charset in a part: %q, %v attachments, %v", p.Text, p.Attachments, err)
+	}
+	uu := crlf("From: a@example.com\nSubject: Old\nMessage-ID: <u3@example.com>\nContent-Transfer-Encoding: x-uuencode\n\nbegin 644 x\nend\n")
+	if _, err := parseMessage(uu, fallback); err != nil {
+		t.Errorf("unknown transfer encoding: %v", err)
+	}
+}

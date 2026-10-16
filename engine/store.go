@@ -85,6 +85,8 @@ var migrations = []string{
 		message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
 		PRIMARY KEY (mailbox_id, uid)
 	);`,
+	// Deleting messages (removing an account) cascades through message_locations by message_id.
+	`CREATE INDEX message_locations_message ON message_locations(message_id);`,
 }
 
 type Store struct{ db *sql.DB }

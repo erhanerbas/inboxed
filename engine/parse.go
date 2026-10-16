@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset" // decodes non-UTF-8 bodies and headers
 	"github.com/emersion/go-message/mail"
 )
@@ -18,10 +19,12 @@ import (
 // parseMessage keeps what Inboxed shows of a raw message: headers, plain text (or HTML reduced to text) and
 // attachment names and sizes. fallbackDate (the server's INTERNALDATE) stands in for a missing or broken Date.
 func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
-	r, err := mail.CreateReader(bytes.NewReader(raw))
-	if err != nil {
+	// message.Read (unlike mail.CreateReader) hands back a usable entity for unknown charsets and transfer encodings.
+	e, err := message.Read(bytes.NewReader(raw))
+	if err != nil && !readable(err) {
 		return parsed{}, err
 	}
+	r := mail.NewReader(e)
 	h := r.Header
 	var p parsed
 	p.Subject, _ = h.Subject()
@@ -44,7 +47,7 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 	var plain, htmlParts []string
 	for {
 		part, err := r.NextPart()
-		if err != nil {
+		if err != nil && !readable(err) {
 			break // io.EOF, or a broken part: keep what was read so far
 		}
 		switch ph := part.Header.(type) {
@@ -78,6 +81,12 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 	}
 	p.Text = strings.TrimSpace(strings.ReplaceAll(p.Text, "\r\n", "\n"))
 	return p, nil
+}
+
+// readable reports errors go-message raises while still handing back usable content: a charset or transfer encoding
+// it doesn't know. The raw bytes are kept, which beats losing the message.
+func readable(err error) bool {
+	return message.IsUnknownCharset(err) || message.IsUnknownEncoding(err)
 }
 
 func first(ids []string) string {

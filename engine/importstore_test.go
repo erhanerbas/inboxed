@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -107,5 +108,52 @@ func TestUpsertMailboxParents(t *testing.T) {
 	}
 	if parent[orphan] != nil {
 		t.Errorf("a folder whose parent isn't listed should be top-level, got %v", *parent[orphan])
+	}
+}
+
+// Removing an account cascades through message_locations; without an index on message_id that is quadratic.
+func TestRemoveLargeAccountIsFast(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing test")
+	}
+	s := newTestStore(t)
+	addTestAccount(t, s)
+	inbox, _ := s.UpsertMailbox("acc", "INBOX", "Inbox", ptr("inbox"), "", 1)
+	for i := range 4000 {
+		id := fmt.Sprintf("m%d@x", i)
+		if err := s.AddMessage(Incoming{AccountID: "acc", MailboxID: inbox, UID: uint32(i + 1), Seen: true,
+			parsed: parsed{HeaderID: id, Root: id, Subject: "Note", From: Address{"Bot", "bot@x"}, Date: seedNow, Text: "hi"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Now()
+	if err := s.DeleteAccount("acc"); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 250*time.Millisecond {
+		t.Errorf("removing 4,000 messages took %v", took)
+	}
+}
+
+func TestAddLocationForKnownMessage(t *testing.T) {
+	s := newTestStore(t)
+	addTestAccount(t, s)
+	inbox, _ := s.UpsertMailbox("acc", "INBOX", "Inbox", ptr("inbox"), "", 1)
+	archive, _ := s.UpsertMailbox("acc", "[Gmail]/All Mail", "All Mail", ptr("archive"), "", 1)
+	s.AddMessage(Incoming{AccountID: "acc", MailboxID: inbox, UID: 3, Seen: true,
+		parsed: parsed{HeaderID: "a@x", Root: "a@x", Subject: "Hi", Date: seedNow, Text: "Hello"}})
+	if ok, err := s.AddLocation("acc", archive, 9, "a@x", true, true); !ok || err != nil {
+		t.Fatalf("known message: %v %v", ok, err)
+	}
+	if ok, _ := s.AddLocation("acc", archive, 10, "unknown@x", true, false); ok {
+		t.Error("an unknown message can't gain a location without its body")
+	}
+	th, _ := s.Thread("acc/a@x")
+	slices.Sort(th.MailboxIDs)
+	if !th.Starred || !slices.Equal(th.MailboxIDs, []string{"acc/INBOX", "acc/[Gmail]/All Mail"}) {
+		t.Errorf("thread after AddLocation: starred %v, boxes %v", th.Starred, th.MailboxIDs)
+	}
+	if known, _ := s.KnownUIDs(archive); !known[9] || known[10] {
+		t.Errorf("All Mail UIDs %v", known)
 	}
 }
