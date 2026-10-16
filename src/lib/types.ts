@@ -31,6 +31,8 @@ export type Message = {
   date: string; // ISO 8601, UTC
   body: string; // plain text; HTML rendering arrives in Phase 6
   attachments: { name: string; size: number }[];
+  subject: string;
+  draft: boolean; // in a Drafts folder: "Edit draft" resumes it in the compose panel
 };
 
 /** A row in a list: everything but the messages. */
@@ -63,4 +65,15 @@ export type AccountSettings = {
   password: string;
   imap: Server;
   smtp: Server;
+};
+
+/** A message being written. threadId makes it a reply; draftId is the saved draft it replaces. */
+export type Draft = {
+  accountId: string;
+  to: string; // as typed: comma-separated, "Name <email>" allowed; the engine parses and checks it
+  cc: string;
+  subject: string;
+  body: string;
+  threadId?: string;
+  draftId?: string;
 };

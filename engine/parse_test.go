@@ -83,3 +83,10 @@ func TestParseUnknownCharsetsAndEncodings(t *testing.T) {
 		t.Errorf("unknown transfer encoding: %v", err)
 	}
 }
+
+func TestBareAddressShowsAsItself(t *testing.T) {
+	p, err := parseMessage([]byte("From: maya@example.com\r\nTo: You <you@example.com>\r\nSubject: Hi\r\n\r\nHello\r\n"), seedNow)
+	if err != nil || p.From.Name != "maya@example.com" || p.To[0].Name != "You" {
+		t.Errorf("from %+v to %+v (%v)", p.From, p.To, err)
+	}
+}

@@ -30,6 +30,7 @@ const (
 // otherwise hang a sign-in or an import forever.
 var (
 	signInTimeout = 45 * time.Second // the add-account form waits on this
+	smtpTimeout   = time.Minute      // per SMTP command or reply; ponytail: raise for big attachments (Phase 6) on slow uplinks
 	idleTimeout   = 2 * time.Minute  // a sync gives up when the server has answered nothing for this long (IDLE excepted)
 )
 
@@ -111,41 +112,68 @@ func loginIMAP(s Server, username, password string, handler *imapclient.Unilater
 
 // checkSMTP signs in to the outgoing server, so a typo shows up now rather than at the first send.
 func checkSMTP(s Server, username, password string) error {
-	if err := checkSecurity(s); err != nil {
+	c, err := dialSMTP(s, username, password)
+	if err != nil {
 		return err
 	}
-	conn, err := (&net.Dialer{Timeout: dialTimeout}).Dial("tcp", address(s))
-	if err != nil {
-		return cantConnect(s, err)
+	c.Quit()
+	return nil
+}
+
+// cappedConn keeps every deadline within limit from now. go-smtp sets its own deadline before each command (5 to 12
+// minutes, and none while idle), replacing any set on the connection, and its STARTTLS client can't be given shorter
+// ones; capping them here is the one place that covers plain, TLS and STARTTLS alike.
+type cappedConn struct {
+	net.Conn
+	limit time.Duration
+}
+
+func (c cappedConn) SetDeadline(t time.Time) error {
+	if latest := time.Now().Add(c.limit); t.IsZero() || t.After(latest) {
+		t = latest
 	}
-	conn.SetDeadline(time.Now().Add(2 * dialTimeout)) // a server that accepts but never answers can't hang the form
+	return c.Conn.SetDeadline(t)
+}
+
+// dialSMTP connects and signs in. No SMTP command or reply can take longer than smtpTimeout, so a server that stops
+// answering can't hang the add-account form or a send.
+func dialSMTP(s Server, username, password string) (*smtp.Client, error) {
+	if err := checkSecurity(s); err != nil {
+		return nil, err
+	}
+	raw, err := (&net.Dialer{Timeout: dialTimeout}).Dial("tcp", address(s))
+	if err != nil {
+		return nil, cantConnect(s, err)
+	}
+	conn := cappedConn{raw, smtpTimeout}
+	conn.SetDeadline(time.Time{}) // the greeting and TLS handshake, before go-smtp sets any
 	var c *smtp.Client
 	switch s.Security {
 	case "tls":
 		tc := tls.Client(conn, &tls.Config{ServerName: s.Host})
 		if err := tc.Handshake(); err != nil {
 			conn.Close()
-			return cantConnect(s, err)
+			return nil, cantConnect(s, err)
 		}
 		c = smtp.NewClient(tc)
 	case "starttls":
 		if c, err = smtp.NewClientStartTLS(conn, &tls.Config{ServerName: s.Host}); err != nil {
 			conn.Close()
-			return cantConnect(s, err)
+			return nil, cantConnect(s, err)
 		}
 	default:
 		c = smtp.NewClient(conn)
 	}
-	defer c.Close()
 	// PLAIN where offered; many Exchange servers only offer LOGIN.
 	auth := sasl.NewPlainClient("", username, password)
 	if !c.SupportsAuth(sasl.Plain) && c.SupportsAuth(sasl.Login) {
 		auth = sasl.NewLoginClient(username, password)
 	}
 	if err := c.Auth(auth); err != nil {
-		return refused(s, err)
+		c.Close()
+		return nil, refused(s, err)
 	}
-	return nil
+	return c, nil
 }
 
 // sizedBatches splits UIDs into fetches of at most maxCount messages and roughly maxBytes, so a run of large

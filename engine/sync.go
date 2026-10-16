@@ -227,33 +227,42 @@ func (sy *Syncer) session(ctx context.Context, j *job) (synced bool, err error) 
 }
 
 // watched is the inbox as the last folder sync left it: where it is, and how it looked.
-type watched struct {
-	path        string
-	uidNext     imap.UID
-	numMessages uint32
+type watched struct{ path, status string }
+
+// folderStatus asks for a folder's STATUS and its signature: unchanged means nothing to sync there (flag changes
+// other than \Seen show only with CONDSTORE).
+func folderStatus(c *imapclient.Client, path string) (*imap.StatusData, string, error) {
+	st, err := c.Status(path, &imap.StatusOptions{UIDValidity: true, NumMessages: true, UIDNext: true, NumUnseen: true,
+		HighestModSeq: c.Caps().Has(imap.CapCondStore)}).Wait()
+	if err != nil {
+		return nil, "", err
+	}
+	return st, fmt.Sprintf("%d/%d/%d/%d/%d", st.UIDValidity, deref(st.NumMessages), st.UIDNext, deref(st.NumUnseen), st.HighestModSeq), nil
 }
 
 // wait returns when the server reports a change (IDLE on the inbox), a local change is waiting (wake), or it's time
 // for the regular check of every folder.
 func wait(ctx context.Context, l *link, inbox watched, idle bool, changed, wakeup <-chan struct{}) error {
-	// Notes left by Inboxed's own commands (a MOVE's expunges) aren't news.
-	select {
-	case <-changed:
-	default:
-	}
+	// A note left during the pass is kept: it may be a change made elsewhere meanwhile. One left by Inboxed's own
+	// commands (a MOVE's expunges) costs one extra pass, which leaves none behind.
 	c, interval := l.c, pollInterval
 	var cmd *imapclient.IdleCommand
 	if idle && inbox.path != "" {
 		interval = checkInterval
 		l.alive()
-		sel, err := c.Select(inbox.path, &imap.SelectOptions{ReadOnly: true}).Wait()
-		if err != nil {
+		if _, err := c.Select(inbox.path, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
 			return err
 		}
-		// Changed since the folder sync looked: go again rather than wait. (A server that leaves UIDNEXT out of SELECT
-		// mustn't make that look like a change on every pass.)
-		if sel.NumMessages != inbox.numMessages || sel.UIDNext != 0 && sel.UIDNext != inbox.uidNext {
-			return nil
+		// The server reports changes only for the open folder, so one made while the pass had another folder open
+		// comes with no note. From here on the inbox is open and changes are reported; before, compare its STATUS.
+		l.alive()
+		_, status, err := folderStatus(c, inbox.path)
+		if err != nil && !commandFailed(err) {
+			return err
+		}
+		// A server may refuse STATUS on the open folder (RFCs discourage it): then there's nothing to compare.
+		if err == nil && status != inbox.status {
+			return nil // changed since the folder sync looked: go again rather than wait
 		}
 		if cmd, err = c.Idle(); err != nil {
 			return err
@@ -417,7 +426,6 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 	if err != nil {
 		return inbox, err
 	}
-	condstore := c.Caps().Has(imap.CapCondStore)
 	listedPaths := map[string]bool{}
 	var work []folderWork
 	total := 0
@@ -428,8 +436,7 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 		listedPaths[box.Mailbox] = true
 		role := mailboxRole(box)
 		l.alive()
-		st, err := c.Status(box.Mailbox, &imap.StatusOptions{UIDValidity: true, NumMessages: true, UIDNext: true, NumUnseen: true,
-			HighestModSeq: condstore}).Wait()
+		st, status, err := folderStatus(c, box.Mailbox)
 		if commandFailed(err) {
 			log.Printf("sync %s: skipping %s: %v", j.id, box.Mailbox, err)
 			continue
@@ -437,9 +444,8 @@ func (sy *Syncer) syncFolders(ctx context.Context, c *imapclient.Client, l *link
 			return inbox, err
 		}
 		if role != nil && *role == "inbox" {
-			inbox = watched{box.Mailbox, st.UIDNext, deref(st.NumMessages)}
+			inbox = watched{box.Mailbox, status}
 		}
-		status := fmt.Sprintf("%d/%d/%d/%d/%d", st.UIDValidity, deref(st.NumMessages), st.UIDNext, deref(st.NumUnseen), st.HighestModSeq)
 		last, modseq := sy.store.MailboxStatus(j.id + "/" + box.Mailbox)
 		if !full && last == status {
 			continue
@@ -550,7 +556,7 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 	if sel.NumMessages > 0 {
 		l.alive()
 		above := imap.UIDSet{imap.UIDRange{Start: imap.UID(top + 1), Stop: 0}}
-		found, err := c.UIDSearch(&imap.SearchCriteria{UID: []imap.UIDSet{above}}, nil).Wait()
+		found, err := c.UIDSearch(&imap.SearchCriteria{UID: []imap.UIDSet{above}, NotFlag: notDeleted}, nil).Wait()
 		if err != nil {
 			return "", nil, err
 		}
@@ -565,7 +571,7 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 		onServer := map[uint32]bool{}
 		if sel.NumMessages > 0 {
 			l.alive()
-			found, err := c.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
+			found, err := c.UIDSearch(&imap.SearchCriteria{NotFlag: notDeleted}, nil).Wait()
 			if err != nil {
 				return "", nil, err
 			}
@@ -608,6 +614,11 @@ func (sy *Syncer) reconcile(c *imapclient.Client, l *link, j *job, box *imap.Lis
 	slices.SortFunc(fresh, func(a, b imap.UID) int { return cmp.Compare(b, a) })
 	return id, fresh, nil
 }
+
+// notDeleted leaves out mail flagged \Deleted but not yet expunged: it's on its way out (a draft replaced on a server
+// without UIDPLUS, another client's delete), not mail to import. Its count still makes the cheap check fall back to
+// comparing every UID, which is how it's forgotten here.
+var notDeleted = []imap.Flag{imap.FlagDeleted}
 
 var (
 	idHeader  = &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: []string{"Message-ID"}, Peek: true}

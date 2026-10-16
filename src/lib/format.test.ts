@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatSize } from "./format";
+import { addresses, forwardBody, formatDate, formatSize, replyQuote } from "./format";
+import type { Message } from "./types";
 
 // Thursday 15 October 2026, 14:00 local time.
 const now = new Date(2026, 9, 15, 14, 0);
@@ -20,4 +21,37 @@ describe("formatSize", () => {
   it("bytes", () => expect(formatSize(500)).toBe("500 B"));
   it("kilobytes", () => expect(formatSize(1536)).toBe("2 KB"));
   it("megabytes", () => expect(formatSize(2_400_000)).toBe("2.3 MB"));
+});
+
+const original: Message = {
+  id: "acc/d1@x", threadId: "acc/d1@x", subject: "Dinner plans", draft: false, attachments: [], cc: [],
+  from: { name: "Maya Chen", email: "maya@example.com" }, to: [{ name: "You", email: "you@example.com" }],
+  date: "2026-10-15T12:00:00.000Z", body: "Are you free?\n\nSaturday works.",
+};
+
+describe("replyQuote", () => {
+  it("quotes every line under a 'wrote:' line, after room to type", () => {
+    const q = replyQuote(original, "en-US");
+    expect(q.startsWith("\n\nOn ")).toBe(true);
+    expect(q).toContain("Maya Chen wrote:\n> Are you free?\n>\n> Saturday works.");
+  });
+});
+
+describe("forwardBody", () => {
+  it("carries the original's headers, then its text", () => {
+    const f = forwardBody(original, "Dinner plans", "en-US");
+    expect(f).toContain("---------- Forwarded message ----------");
+    expect(f).toContain("From: Maya Chen <maya@example.com>");
+    expect(f).toContain("Subject: Dinner plans");
+    expect(f).toContain("To: You <you@example.com>");
+    expect(f.endsWith("Are you free?\n\nSaturday works.")).toBe(true);
+  });
+});
+
+describe("addresses", () => {
+  it("keeps names, quoted so commas in them can't split an address", () => {
+    expect(addresses([{ name: "Chen, Maya", email: "maya@x" }, { name: "sam@x", email: "sam@x" }, { name: "", email: "lee@x" }])).toBe(
+      '"Chen, Maya" <maya@x>, sam@x, lee@x',
+    );
+  });
 });

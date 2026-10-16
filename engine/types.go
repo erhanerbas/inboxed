@@ -39,6 +39,8 @@ type Message struct {
 	Date        string       `json:"date"`
 	Body        string       `json:"body"`
 	Attachments []Attachment `json:"attachments"`
+	Subject     string       `json:"subject"`
+	Draft       bool         `json:"draft"` // in a Drafts folder: the compose panel can resume it
 }
 
 // Thread is a conversation. Lists leave Messages empty (a ThreadSummary in TypeScript); GET /threads/{id} fills it.

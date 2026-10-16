@@ -261,8 +261,10 @@ func (s *Store) Thread(id string) (Thread, error) {
 	} else if err != nil {
 		return t, err
 	}
-	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments FROM messages
-		WHERE thread_id = ? ORDER BY date`, id)
+	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments, subject,
+		EXISTS (SELECT 1 FROM message_locations ml JOIN mailboxes mb ON mb.id = ml.mailbox_id
+			WHERE ml.message_id = messages.id AND mb.role = 'drafts')
+		FROM messages WHERE thread_id = ? ORDER BY date`, id)
 	if err != nil {
 		return t, err
 	}
@@ -270,7 +272,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 	for rows.Next() {
 		m := Message{ThreadID: id}
 		var from, to, cc, attachments string
-		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments); err != nil {
+		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments, &m.Subject, &m.Draft); err != nil {
 			return t, err
 		}
 		for _, f := range []struct {
