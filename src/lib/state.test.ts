@@ -18,6 +18,7 @@ const engine = vi.hoisted(() => {
     lists: [] as ((v: unknown) => void)[], // pending /threads? responses when `slow` is set
     slow: false,
     reject: "" as string, // when set, POST /accounts fails with this 400 message
+    refuse: "" as string, // when set, writes to this path fail with a 400 "the server said no"
     emit: undefined as undefined | (() => void), // sends a change event, as the engine's stream would
   };
 });
@@ -34,10 +35,11 @@ vi.mock("./engine", () => {
   const api = async (path: string, init: RequestInit = {}) => {
     if (engine.fail) throw new Error("engine down");
     if (path === "/accounts" && init.method === "POST" && engine.reject) throw new EngineError(400, engine.reject);
+    if (engine.refuse && path.startsWith(engine.refuse) && init.method) throw new EngineError(400, "the server said no");
     engine.calls.push({ path, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body as string) : undefined });
     if (path.startsWith("/threads?") && engine.slow) return new Promise((resolve) => engine.lists.push(resolve));
     if (path.startsWith("/threads/") && !path.endsWith("/move")) return structuredClone(engine.thread);
-    if (path === "/accounts") return [{ id: "a2", name: "Work", email: "you@work.example", provider: "outlook", color: "" }];
+    if (path === "/accounts") return [{ id: "a2", name: "Work", email: "you@work.example", provider: "imap", color: "" }];
     return init.method && init.method !== "GET" ? undefined : [];
   };
   return {
@@ -54,7 +56,7 @@ vi.mock("./engine", () => {
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
-  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "" });
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "" });
   engine.thread.unread = true;
   s = await import("./state.svelte");
   await s.start();
@@ -99,14 +101,67 @@ describe("filing", () => {
   });
 });
 
-describe("drafts", () => {
+describe("composing", () => {
   it("reply goes to the last sender, reply all to everyone but you", async () => {
     await s.reply("t1");
-    expect(s.ui.draft).toEqual({ to: "maya@work.example", subject: "Re: Inboxed design review" });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", threadId: "t1", to: "maya@work.example", subject: "Re: Inboxed design review" });
+    expect(s.ui.draft.body).toMatch(/Maya Chen wrote:\n> Done\.$/);
     await s.reply("t1", true);
     expect(s.ui.draft.to).toBe("maya@work.example, daniel@work.example");
     await s.forward("t1");
-    expect(s.ui.draft).toEqual({ to: "", subject: "Fwd: Inboxed design review" });
+    expect(s.ui.draft).toMatchObject({ to: "", subject: "Fwd: Inboxed design review" });
+    expect(s.ui.draft.threadId).toBeUndefined(); // a forward starts a new conversation
+    expect(s.ui.draft.body).toContain("Forwarded message");
+  });
+
+  it("send posts the draft, closes the panel and reloads", async () => {
+    await s.reply("t1");
+    s.ui.draft.body = "Thanks!" + s.ui.draft.body;
+    expect(await s.sendDraft()).toBe(null);
+    expect(writes()).toEqual([{ path: "/send", method: "POST", body: { ...s.ui.draft } }]);
+    expect(s.ui.composing).toBe(false);
+    expect(engine.calls.some((c) => c.path === "/mailboxes")).toBe(true);
+  });
+
+  it("a refused send keeps the panel open with the server's reason", async () => {
+    s.compose({ to: "nobody@example.com" });
+    engine.refuse = "/send";
+    expect(await s.sendDraft()).toBe("the server said no");
+    expect(s.ui.composing).toBe(true);
+  });
+
+  it("closing an unchanged reply saves nothing; closing after typing saves a draft", async () => {
+    await s.reply("t1");
+    expect(await s.closeCompose()).toBe(null);
+    expect(writes()).toEqual([]);
+    s.compose();
+    s.ui.draft.subject = "Plans";
+    expect(await s.closeCompose()).toBe(null);
+    expect(writes()).toEqual([{ path: "/drafts", method: "PUT", body: { ...s.ui.draft } }]);
+    expect(s.ui.composing).toBe(false);
+  });
+
+  it("closing keeps unsaved text when the draft can't be saved", async () => {
+    s.compose();
+    s.ui.draft.body = "Half a thought";
+    engine.refuse = "/drafts";
+    expect(await s.closeCompose()).toBe("the server said no");
+    expect(s.ui.composing).toBe(true);
+    expect(s.ui.draft.body).toBe("Half a thought");
+  });
+
+  it("discard deletes the saved draft", async () => {
+    s.compose({ draftId: "a2/x@y" });
+    await s.discardDraft();
+    expect(writes()).toEqual([{ path: "/drafts/a2%2Fx%40y", method: "DELETE", body: undefined }]);
+    expect(s.ui.composing).toBe(false);
+  });
+
+  it("edit draft resumes it in the panel", async () => {
+    await s.openThread("t1");
+    s.editDraft({ ...engine.thread.messages[1], subject: "Re: Inboxed design review", draft: true });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", draftId: "m2", threadId: "t1", to: "you@work.example", body: "Done." });
+    expect(s.ui.composing).toBe(true);
   });
 });
 

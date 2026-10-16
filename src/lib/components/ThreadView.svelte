@@ -13,7 +13,7 @@
   import Icon from "./Icon.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
-  import { archive, data, forward, reply, toggleStar, trash, ui } from "$lib/state.svelte";
+  import { archive, data, editDraft, forward, reply, toggleStar, trash, ui } from "$lib/state.svelte";
   import { formatDate, formatSize } from "$lib/format";
   import { splitQuoted, unquote } from "$lib/quote";
   import type { Address, Message } from "$lib/types";
@@ -139,6 +139,9 @@
                       {/each}
                     </ul>
                   {/if}
+                  {#if m.draft}
+                    <button class="btn-secondary mt-4" onclick={() => editDraft(m)}>Edit draft</button>
+                  {/if}
                 </div>
               {/if}
             </li>
@@ -166,6 +169,7 @@
           <span class="font-semibold">{m.from.name}</span>
           <span class="text-caption text-ink-muted wrap-anywhere">{m.from.email}</span>
         </span>
+        {#if m.draft}<span class="shrink-0 text-caption font-medium text-ink-muted">Draft</span>{/if}
         <time datetime={m.date} class="shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
       </span>
       <span class="block text-caption text-ink-muted">

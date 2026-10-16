@@ -1,3 +1,5 @@
+import type { Address, Message } from "./types";
+
 /** Mail-list style date: time today, "Yesterday", weekday this week, then a date. */
 export function formatDate(iso: string, now = new Date(), locale?: string): string {
   const d = new Date(iso);
@@ -16,4 +18,27 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
+
+const fullDate = (iso: string, locale?: string) =>
+  new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+const person = (a: Address) => (a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email);
+
+/** What a reply starts with: room to type, then the message it answers, quoted line by line. */
+export function replyQuote(m: Message, locale?: string): string {
+  const quoted = m.body.split("\n").map((line) => (line ? `> ${line}` : ">"));
+  return `\n\nOn ${fullDate(m.date, locale)}, ${m.from.name || m.from.email} wrote:\n${quoted.join("\n")}`;
+}
+
+/** What a forward starts with: room to type, the original's headers, then its text. */
+export function forwardBody(m: Message, subject: string, locale?: string): string {
+  return [
+    "\n\n---------- Forwarded message ----------",
+    `From: ${person(m.from)}`,
+    `Date: ${fullDate(m.date, locale)}`,
+    `Subject: ${subject}`,
+    `To: ${m.to.map(person).join(", ")}`,
+    "",
+    m.body,
+  ].join("\n");
 }
