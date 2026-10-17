@@ -49,7 +49,7 @@
 
 <div class="flex h-screen overflow-hidden">
   <Sidebar />
-  <div class="w-[26rem] shrink-0 border-l border-line bg-panel">
+  <div class="sidebar-material w-[26rem] shrink-0 border-l border-line">
     <MessageList />
   </div>
   <main class="min-w-0 flex-1 border-l border-line bg-canvas">
