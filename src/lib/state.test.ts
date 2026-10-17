@@ -20,6 +20,7 @@ const engine = vi.hoisted(() => {
     reject: "" as string, // when set, POST /accounts fails with this 400 message
     refuse: "" as string, // when set, writes to this path fail with a 400 "the server said no"
     gone: "" as string, // when set, GET /threads/<gone> is a 404
+    mailboxes: [] as { id: string; accountId: string; role: string | null }[], // what GET /mailboxes returns
     emit: undefined as undefined | (() => void), // sends a change event, as the engine's stream would
     mail: undefined as undefined | ((batch: unknown[]) => void), // sends a mail event
     delivered: [] as unknown[], // notifications shown
@@ -43,6 +44,8 @@ vi.mock("./engine", () => {
     if (engine.refuse && path.startsWith(engine.refuse) && init.method) throw new EngineError(400, "the server said no");
     if (engine.gone && path === `/threads/${engine.gone}`) throw new EngineError(404, "not found");
     engine.calls.push({ path, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body as string) : undefined });
+    if (path === "/mailboxes") return structuredClone(engine.mailboxes);
+    if (path.startsWith("/threads?") && !new URLSearchParams(path.slice(9)).get("key")) throw new EngineError(404, "not found");
     if (path.startsWith("/threads?") && engine.slow) return new Promise((resolve) => engine.lists.push(resolve));
     if (path.startsWith("/threads/") && !path.endsWith("/move")) return structuredClone(engine.thread);
     if (path === "/accounts") return [{ id: "a2", name: "Work", email: "you@work.example", provider: "imap", color: "" }];
@@ -69,7 +72,7 @@ vi.mock("./notify", async (real) => ({
 let s: typeof import("./state.svelte");
 beforeEach(async () => {
   vi.resetModules();
-  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "", gone: "", delivered: [], badge: -1, focused: true });
+  Object.assign(engine, { calls: [], fail: false, slow: false, lists: [], reject: "", refuse: "", gone: "", mailboxes: [], delivered: [], badge: -1, focused: true });
   vi.stubGlobal("document", { hasFocus: () => engine.focused }); // tests run in Node: no DOM
   engine.thread.unread = true;
   s = await import("./state.svelte");
@@ -277,6 +280,18 @@ describe("accounts", () => {
   it("Sync now asks the engine to sync the account", async () => {
     await s.syncNow("a2");
     expect(writes()).toContainEqual({ path: "/accounts/a2/sync", method: "POST", body: undefined });
+  });
+});
+
+describe("a new account", () => {
+  it("opens its inbox once the first sync brings its folders", async () => {
+    s.selectAccount("a2"); // no folders yet
+    await s.showList();
+    expect(s.ui.error).toBe("");
+    engine.mailboxes = [{ id: "a2/INBOX", accountId: "a2", role: "inbox" }];
+    engine.emit?.();
+    await vi.waitFor(() => expect(s.ui.mailboxKey).toBe("a2/INBOX"));
+    expect(s.ui.error).toBe("");
   });
 });
 

@@ -52,6 +52,7 @@ async function run(work: () => Promise<unknown>) {
 let listRequest = 0;
 async function loadList() {
   const n = ++listRequest;
+  if (!ui.mailboxKey) return void (data.list = []); // a new account before its first sync has no folders yet
   const params = new URLSearchParams({ account: ui.accountId, key: ui.mailboxKey, q: ui.query });
   const list = await api<ThreadSummary[]>(`/threads?${params}`);
   if (n === listRequest) data.list = list; // a newer request (fast typing in search) wins
@@ -75,8 +76,11 @@ async function loadThread() {
 
 // After any change the engine is the source of truth, unread counts included.
 async function reload() {
-  const [mailboxes] = await Promise.all([api<Mailbox[]>("/mailboxes"), loadList(), loadThread()]);
+  const mailboxes = await api<Mailbox[]>("/mailboxes");
   data.mailboxes = mailboxes;
+  // The selected folder may not exist yet (a new account's first sync) or any more (deleted on the server).
+  if (ui.accountId !== "all" && !mailboxes.some((m) => m.id === ui.mailboxKey)) ui.mailboxKey = inboxOf(ui.accountId);
+  await Promise.all([loadList(), loadThread()]);
   setBadge(mailboxes.filter((m) => m.role === "inbox").reduce((sum, m) => sum + m.unread, 0));
 }
 
@@ -188,10 +192,12 @@ export const showList = () => run(loadList);
 
 export function selectAccount(id: string) {
   ui.accountId = id;
-  ui.mailboxKey =
-    id === "all" ? "inbox" : (data.mailboxes.find((m) => m.accountId === id && m.role === "inbox")?.id ?? "");
+  ui.mailboxKey = inboxOf(id);
   ui.threadId = null;
 }
+
+const inboxOf = (accountId: string) =>
+  accountId === "all" ? "inbox" : (data.mailboxes.find((m) => m.accountId === accountId && m.role === "inbox")?.id ?? "");
 
 export function selectMailbox(key: string) {
   ui.mailboxKey = key;
