@@ -17,9 +17,8 @@
 </script>
 
 <!-- The accounts rail is the whole sidebar: folders live in the message list's switcher. -->
-<nav aria-label="Accounts" class="sidebar-material relative flex h-full w-20 shrink-0 flex-col items-center gap-2 pt-14 pb-3">
-  <!-- Title-bar strip: room for the traffic lights. -->
-  <div data-tauri-drag-region class="absolute inset-x-0 top-0 h-13"></div>
+<!-- The whole rail moves the window: its empty space is a drag region (buttons on it still click). -->
+<nav aria-label="Accounts" data-tauri-drag-region class="sidebar-material flex h-full w-14 shrink-0 flex-col items-center gap-2 pt-13 pb-3">
   <button
     class="rail-btn"
     aria-label="All inboxes"
@@ -44,9 +43,9 @@
       {#if unread}
         <span
           aria-hidden="true"
-          class="absolute -top-1.5 -right-1.5 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1 text-caption font-semibold text-on-accent tabular-nums ring-2 ring-sidebar"
+          class="absolute -top-1 -right-1.5 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1 text-caption font-semibold text-on-accent tabular-nums ring-2 ring-sidebar"
         >
-          {unread}
+          {unread > 99 ? "99+" : unread}
         </span>
       {/if}
     </button>

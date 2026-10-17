@@ -12,13 +12,13 @@
   --color-panel: #ffffff;
   --color-raised: #f5f5f5;
   --color-float: #ffffff; /* compose, dialogs, banners */
-  --color-selected: #ffedd5;
+  --color-selected: #ebebeb;
   --color-line: #e5e5e5;
   --color-ink: #171717;
   --color-ink-muted: #666666;
-  /* Orange marks unread, selected and primary. In light mode it can't reach 4.5:1, so it is never text. */
-  --color-accent: #c96500;
-  --color-on-accent: #171717; /* text on an accent fill, both themes */
+  /* No hue: the accent is ink. It marks unread, selected and primary; on-accent is the label on an accent fill. */
+  --color-accent: #171717;
+  --color-on-accent: #ffffff;
   --color-danger: #dc2626; /* destructive actions only */
   --color-on-danger: #ffffff;
 
@@ -57,11 +57,12 @@
     --color-panel: #171717;
     --color-raised: #262626;
     --color-float: #262626;
-    --color-selected: #3b2a12;
+    --color-selected: #2a2a2a;
     --color-line: #ffffff1a;
     --color-ink: #fafafa;
     --color-ink-muted: #a3a3a3;
-    --color-accent: #ff9f0a;
+    --color-accent: #fafafa;
+    --color-on-accent: #171717;
     --color-danger: #ff453a; /* Apple's dark-mode system red */
     --color-on-danger: #121212;
     --float-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
@@ -93,7 +94,7 @@
     outline-offset: -2px;
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    background: color-mix(in srgb, var(--color-ink) 20%, transparent);
   }
   /* Thin scrollbars everywhere (the mail frame has its own copy): a 6px thumb on no track. */
   ::-webkit-scrollbar {
@@ -144,21 +145,9 @@
   .rail-btn {
     @apply relative grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10;
   }
+  /* The current account: a fill, no marker. */
   .rail-btn[aria-current="true"] {
-    @apply bg-ink/8 text-ink;
-  }
-  /* The fill alone is 1.19:1 against the rail, so selection also gets a shape: an accent bar on the leading edge. */
-  .rail-btn[aria-current="true"]::before {
-    content: "";
-    position: absolute;
-    inset-inline-start: -1.25rem;
-    top: 50%;
-    translate: 0 -50%;
-    width: 3px;
-    height: 1.25rem;
-    border-start-end-radius: 3px;
-    border-end-end-radius: 3px;
-    background: var(--color-accent);
+    @apply bg-ink/10 text-ink;
   }
   .btn-primary {
     @apply h-8 rounded-lg bg-accent px-4 font-semibold text-on-accent transition-transform duration-100 active:scale-[0.97];
@@ -171,11 +160,11 @@
   .pill-btn {
     @apply h-6 shrink-0 rounded-full border border-line px-2.5 text-caption text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10 aria-pressed:bg-raised aria-pressed:text-ink;
   }
-  /* An on/off setting, drawn as a switch: orange when on (orange means selected). */
+  /* An on/off setting, drawn as a switch: an accent track when on. */
   .switch {
     @apply relative h-5 w-8 shrink-0 appearance-none rounded-full bg-ink/20 transition-colors duration-150 checked:bg-accent disabled:opacity-60 motion-reduce:transition-none;
     &::before {
-      @apply absolute top-0.5 left-0.5 size-4 rounded-full bg-[#fff] shadow-sm transition-transform duration-150 content-[''] motion-reduce:transition-none;
+      @apply absolute top-0.5 left-0.5 size-4 rounded-full bg-canvas shadow-sm transition-transform duration-150 content-[''] motion-reduce:transition-none;
     }
     &:checked::before {
       @apply translate-x-3;
@@ -188,7 +177,7 @@
   .btn-danger {
     @apply h-8 rounded-lg bg-danger px-4 font-semibold text-on-danger transition-transform duration-100 active:scale-[0.97];
   }
-  /* Import progress: a quiet track, never the accent (orange means unread, selected or primary). */
+  /* Import progress: a quiet track, never the accent (it means unread, selected or primary). */
   progress.import {
     appearance: none;
     height: 4px;

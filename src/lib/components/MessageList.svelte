@@ -48,7 +48,8 @@
 <svelte:window onkeydown={move} />
 
 <section aria-label="Messages" class="flex h-full flex-col">
-  <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 pr-3 pl-4">
+  <!-- pl-8: the window's traffic lights sit over the rail and this header's start, so the folder switcher begins past them. -->
+  <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 pr-3 pl-8">
     <FolderMenu />
     <button class="icon-btn shrink-0" aria-label="New message" title="New message ({isMac ? '⌘N' : 'Ctrl+N'})" onclick={() => compose()}>
       <Icon icon={PencilEdit02Icon} size={17} />
@@ -56,7 +57,7 @@
   </header>
 
   <!-- Which account this is, and how its sync is going. -->
-  <div class="-mt-2 px-4 pb-3 text-caption text-ink-muted">
+  <div class="-mt-2 pr-4 pb-3 pl-8 text-caption text-ink-muted">
     {#if account?.sync?.state === "importing"}
       {@const { done, total } = account.sync}
       <!-- No live region: a counter that changes every second and a half would talk over everything. -->

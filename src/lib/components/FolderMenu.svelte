@@ -122,10 +122,10 @@
     onclick={() => pick(m.id)}
     use:contextmenu={() => markAllReadMenu(ui.accountId, m.id, m.unread)}
   >
-    <Icon icon={m.role ? roleIcons[m.role] : Folder01Icon} size={16} class="shrink-0 {selected ? 'text-accent' : 'text-ink-muted'}" />
+    <Icon icon={m.role ? roleIcons[m.role] : Folder01Icon} size={16} class="shrink-0 {selected ? 'text-ink' : 'text-ink-muted'}" />
     <span class="min-w-0 flex-1 truncate">{m.name}</span>
     {#if m.unread}
-      <!-- Inbox counts are orange pills (orange means unread); orange is never text, so the number is dark. -->
+      <!-- Inbox counts are accent pills (the accent means unread). -->
       <span
         class="text-caption tabular-nums {m.role === 'inbox'
           ? 'grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1.5 font-semibold text-on-accent'

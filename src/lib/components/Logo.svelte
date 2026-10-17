@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The mark: one envelope in front of another. Many accounts, one inbox. The front one is orange, as unread mail is.
+  // The mark: one envelope in front of another. Many accounts, one inbox. The front one is filled, as unread mail is marked.
   let { size = 32, gap = "var(--color-canvas)" }: { size?: number; gap?: string } = $props();
 </script>
 
