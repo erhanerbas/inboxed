@@ -14,13 +14,20 @@ export const QUOTE_SELECTOR = [
   ".moz-cite-prefix ~ *",
 ].join(", ");
 
-// Mail is designed for white paper: it gets a light page of its own rather than the app's dark one.
+// Mail is designed for white paper: it gets a light page of its own.
 const BASE = `:root { color-scheme: light; }
 body { margin: 0; padding: 20px 24px; display: flow-root; background: #fff; color: #1c1b1b; overflow-wrap: anywhere;
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 img { max-width: 100%; height: auto; }
 pre { white-space: pre-wrap; }
 :root:not(.ib-show-quotes) :is(${QUOTE_SELECTOR}) { display: none !important; }`;
+
+// Dark mail: the whole light page is inverted (hue kept by the rotation) and pictures are inverted back, so any design
+// darkens without being understood. #ededed inverts to the app's dark canvas. The reader can switch back per message.
+const DARK = `:root { filter: invert(1) hue-rotate(180deg); background: #ededed; }
+body { background: #ededed; }
+img, video, picture, canvas, svg image, [background], [style*="background-image"], [style*="background: url"],
+[style*="background:url"] { filter: invert(1) hue-rotate(180deg); }`;
 
 // <meta> (refresh), <base> and <link> become unknown, inert elements: renaming the tag can't be dodged the way
 // matching its attributes can. Links are kept once remote content is allowed (stylesheets then load); before that,
@@ -30,8 +37,9 @@ const INERT_LINK = /<(\/?)(link)\b/gi;
 // Protocol-relative URLs would resolve against the app (tauri://…) inside srcdoc: give them https.
 const PROTOCOL_RELATIVE = /(\b(?:src|href|srcset|poster|background)\s*=\s*["']?\s*|url\(\s*["']?\s*)\/\/(?=[\w.-])/gi;
 
-/** The frame's document: the policy first, then the message. remote allows images, styles and fonts from the web. */
-export function frameDoc(html: string, remote: boolean): string {
+/** The frame's document: the policy first, then the message. remote allows images, styles and fonts from the web;
+ *  dark shows it inverted. */
+export function frameDoc(html: string, remote: boolean, dark = false): string {
   const web = remote ? " https: http:" : "";
   const policy =
     `default-src 'none'; script-src 'none'; style-src 'unsafe-inline'${web}; ` +
@@ -40,7 +48,7 @@ export function frameDoc(html: string, remote: boolean): string {
   if (!remote) body = body.replace(INERT_LINK, "<$1x-$2");
   return (
     `<!doctype html><html><head><meta charset="utf-8">` +
-    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}</style></head>` +
+    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}${dark ? DARK : ""}</style></head>` +
     `<body>${body}</body></html>`
   );
 }

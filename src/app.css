@@ -1,41 +1,65 @@
 @import "tailwindcss";
 
+@import "@fontsource-variable/inter";
+
+/* Two themes with the same token names: the light values live in @theme, the dark ones override them below.
+   Structure after the Dub reference: hairline borders define containers, shadows only on what floats. */
 @theme {
   /* Only these colors exist. Tailwind's palette is removed on purpose. */
   --color-*: initial;
-  --color-canvas: #161515;
-  --color-sidebar: #1c1b1b;
-  --color-panel: #201f1e;
-  --color-raised: #2b2928;
-  --color-selected: #4a3518;
-  --color-line: #ffffff14;
-  --color-ink: #f5f4f3;
-  --color-ink-muted: #a8a4a0;
-  --color-accent: #ff9f0a;
-  --color-danger: #ff453a; /* Apple's dark-mode system red; destructive actions only */
+  --color-canvas: #ffffff;
+  --color-sidebar: #f5f5f5;
+  --color-panel: #ffffff;
+  --color-raised: #f5f5f5;
+  --color-float: #ffffff; /* compose, dialogs, banners */
+  --color-selected: #ffedd5;
+  --color-line: #e5e5e5;
+  --color-ink: #171717;
+  --color-ink-muted: #666666;
+  /* Orange marks unread, selected and primary. In light mode it can't reach 4.5:1, so it is never text. */
+  --color-accent: #c96500;
+  --color-on-accent: #171717; /* text on an accent fill, both themes */
+  --color-danger: #dc2626; /* destructive actions only */
+  --color-on-danger: #ffffff;
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* Type scale: tracking tightens as size grows. */
   --text-*: initial;
-  --text-caption: 0.6875rem;
+  --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
-  --text-caption--letter-spacing: 0.01em;
-  --text-ui: 0.8125rem;
-  --text-ui--line-height: 1.125rem;
+  --text-ui: 0.875rem;
+  --text-ui--line-height: 1.25rem;
   --text-heading: 0.9375rem;
   --text-heading--line-height: 1.25rem;
   --text-heading--font-weight: 600;
   --text-read: 0.9375rem;
   --text-read--line-height: 1.6;
-  --text-title: 1.375rem;
-  --text-title--line-height: 1.2;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.25;
   --text-title--letter-spacing: -0.02em;
 }
 
 @layer base {
   :root {
+    color-scheme: light;
+    --float-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  }
+  :root[data-theme="dark"] {
     color-scheme: dark;
+    --color-canvas: #121212;
+    --color-sidebar: #171717;
+    --color-panel: #171717;
+    --color-raised: #262626;
+    --color-float: #262626;
+    --color-selected: #3b2a12;
+    --color-line: #ffffff1a;
+    --color-ink: #fafafa;
+    --color-ink-muted: #a3a3a3;
+    --color-accent: #ff9f0a;
+    --color-danger: #ff453a; /* Apple's dark-mode system red */
+    --color-on-danger: #121212;
+    --float-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
   }
   body {
     @apply bg-canvas font-sans text-ui text-ink antialiased;
@@ -73,6 +97,16 @@
 }
 
 @layer components {
+  /* Dub's dotted blueprint texture. Used once: the empty reading pane. */
+  .dot-grid {
+    background-color: var(--color-canvas);
+    background-image: radial-gradient(color-mix(in srgb, var(--color-ink) 14%, transparent) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  /* Only what floats over the window (compose, dialogs, banners) gets a shadow; everything else is a hairline. */
+  .shadow-float {
+    box-shadow: var(--float-shadow);
+  }
   .sidebar-material {
     background: var(--color-sidebar);
   }
@@ -86,7 +120,7 @@
   }
 
   .icon-btn {
-    @apply grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-100 hover:bg-raised hover:text-ink active:bg-raised;
+    @apply grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10;
   }
   /* The account rail is the structural layer: a heavier material than the mailbox list beside it. */
   .rail-material {
@@ -98,10 +132,10 @@
     }
   }
   .rail-btn {
-    @apply relative grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-raised/70 hover:text-ink active:bg-raised;
+    @apply relative grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10;
   }
   .rail-btn[aria-current="true"] {
-    @apply bg-raised text-ink;
+    @apply bg-ink/8 text-ink;
   }
   /* The fill alone is 1.19:1 against the rail, so selection also gets a shape: an accent bar on the leading edge. */
   .rail-btn[aria-current="true"]::before {
@@ -117,15 +151,15 @@
     background: var(--color-accent);
   }
   .btn-primary {
-    @apply h-8 rounded-lg bg-accent px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
+    @apply h-8 rounded-lg bg-accent px-4 font-semibold text-on-accent transition-transform duration-100 active:scale-[0.97];
   }
 
   .btn-secondary {
-    @apply h-8 rounded-lg border border-line px-4 font-medium text-ink transition-colors duration-100 hover:bg-panel active:bg-panel;
+    @apply h-8 rounded-lg border border-line px-4 font-medium text-ink transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10;
   }
-  /* Destructive actions only: red fill, dark label. */
+  /* Destructive actions only. */
   .btn-danger {
-    @apply h-8 rounded-lg bg-danger px-4 font-semibold text-canvas transition-transform duration-100 active:scale-[0.97];
+    @apply h-8 rounded-lg bg-danger px-4 font-semibold text-on-danger transition-transform duration-100 active:scale-[0.97];
   }
   /* Import progress: a quiet track, never the accent (orange means unread, selected or primary). */
   progress.import {
@@ -153,7 +187,7 @@
     }
     /* Inputs here draw no outline, so the label carries the focus cue. */
     &:focus-within > span {
-      @apply text-accent;
+      @apply text-ink;
     }
     & > input,
     & > select {
@@ -165,7 +199,7 @@
     @apply flex flex-col gap-1.5 text-caption font-medium text-ink-muted;
     & > input,
     & > select {
-      @apply h-9 rounded-lg border border-line bg-panel px-3 text-ui font-normal text-ink outline-none focus:border-accent;
+      @apply h-9 w-full min-w-0 rounded-md border border-line bg-canvas px-3 text-ui font-normal text-ink outline-none transition-colors duration-100 focus:border-ink;
     }
   }
 }

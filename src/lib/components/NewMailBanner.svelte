@@ -15,7 +15,7 @@
   {#if newest}
     <div
       transition:rise
-      class="pointer-events-auto flex max-w-xl min-w-0 items-center gap-3 rounded-xl border border-line bg-raised py-2 pr-2 pl-4 shadow-[0_12px_32px_rgb(0_0_0/0.4)]"
+      class="shadow-float pointer-events-auto flex max-w-xl min-w-0 items-center gap-3 rounded-2xl border border-line bg-float py-2 pr-2 pl-4"
     >
       <span class="size-2 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
       <p class="min-w-0 flex-1 truncate">

@@ -52,7 +52,7 @@
   transition:rise
   onclose={() => (ui.addingAccount = false)}
   aria-labelledby="add-account-title"
-  class="m-auto max-h-[calc(100vh-2rem)] w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-line bg-raised p-6 text-ink shadow-[0_24px_60px_rgb(0_0_0/0.5)] backdrop:bg-canvas/60"
+  class="m-auto max-h-[calc(100vh-2rem)] w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto shadow-float rounded-2xl border border-line bg-float p-6 text-ink backdrop:bg-ink/30"
 >
   <header class="mb-5 flex items-center gap-2">
     <h2 id="add-account-title" class="flex-1 text-heading">Add an account</h2>
@@ -73,7 +73,7 @@
     {@render server("imap", "Incoming mail (IMAP)")}
     {@render server("smtp", "Outgoing mail (SMTP)")}
     {#if error}
-      <p role="alert" class="rounded-lg bg-panel px-3 py-2 wrap-anywhere">{error}</p>
+      <p role="alert" class="rounded-lg bg-raised px-3 py-2 wrap-anywhere">{error}</p>
     {/if}
     <button class="btn-primary mt-2" disabled={busy}>{busy ? "Signing in…" : "Add account"}</button>
   </form>
@@ -82,7 +82,7 @@
 {#snippet server(side: "imap" | "smtp", legend: string)}
   <!-- Server, port and security on one row: the three always change together. -->
   <fieldset class="mt-2 grid grid-cols-[1fr_4.5rem_7rem] gap-3">
-    <legend class="mb-2 text-caption font-medium text-ink-muted uppercase">{legend}</legend>
+    <legend class="mb-2 font-medium text-ink">{legend}</legend>
     <label class="stack-field">
       Server<input required bind:value={settings[side].host} placeholder="{side}.example.com" autocomplete="off" />
     </label>

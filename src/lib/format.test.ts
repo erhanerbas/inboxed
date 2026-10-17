@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addresses, forwardBody, formatDate, formatSize, replyQuote } from "./format";
+import { addresses, dateGroup, forwardBody, formatDate, formatSize, replyQuote } from "./format";
 import type { Message } from "./types";
 
 // Thursday 15 October 2026, 14:00 local time.
@@ -15,6 +15,30 @@ describe("formatDate", () => {
   it("shows month and day after a week", () => expect(fmt(at(2026, 9, 8, 10, 0))).toBe("Oct 8"));
   it("shows month and day earlier this year", () => expect(fmt(at(2026, 2, 3))).toBe("Mar 3"));
   it("adds the year for earlier years", () => expect(fmt(at(2025, 11, 24))).toBe("Dec 24, 2025"));
+});
+
+describe("dateGroup", () => {
+  const group = (iso: string) => dateGroup(iso, now, "en-US");
+  it("Today, and mail dated in the future (a sender's wrong clock)", () => {
+    expect(group(at(2026, 9, 15, 0, 1))).toBe("Today");
+    expect(group(at(2026, 9, 16, 9, 0))).toBe("Today");
+  });
+  it("Yesterday", () => expect(group(at(2026, 9, 14, 23, 59))).toBe("Yesterday"));
+  it("This week starts on Monday", () => {
+    expect(group(at(2026, 9, 12, 8, 0))).toBe("This week");
+    expect(group(at(2026, 9, 11, 22, 0))).toBe("Last week");
+  });
+  it("Last week runs Monday to Sunday", () => expect(group(at(2026, 9, 5, 0, 0))).toBe("Last week"));
+  it("then the month, then month and year", () => {
+    expect(group(at(2026, 9, 4, 12, 0))).toBe("October");
+    expect(group(at(2026, 8, 30))).toBe("September");
+    expect(group(at(2025, 11, 24))).toBe("December 2025");
+  });
+  it("on a Monday, Yesterday is Sunday of last week", () => {
+    const monday = new Date(2026, 9, 12, 9, 0);
+    expect(dateGroup(at(2026, 9, 11, 9, 0), monday, "en-US")).toBe("Yesterday");
+    expect(dateGroup(at(2026, 9, 10, 9, 0), monday, "en-US")).toBe("Last week");
+  });
 });
 
 describe("formatSize", () => {

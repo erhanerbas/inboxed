@@ -7,6 +7,12 @@
     <title>Inboxed</title>
     <script>
       document.documentElement.dataset.platform = /Mac/.test(navigator.userAgent) ? "mac" : "other";
+      // Before the first paint, so the window never flashes the other theme. theme.svelte.ts takes over from here.
+      try {
+        var chosen = localStorage.getItem("inboxed.theme");
+      } catch (e) {}
+      document.documentElement.dataset.theme =
+        chosen || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     </script>
     %sveltekit.head%
   </head>

@@ -14,6 +14,20 @@ export function formatDate(iso: string, now = new Date(), locale?: string): stri
   return d.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** The heading a message list groups a date under: Today, Yesterday, This week, Last week (weeks start on Monday),
+ *  then the month, with its year when that isn't this year. */
+export function dateGroup(iso: string, now = new Date(), locale?: string): string {
+  const d = new Date(iso);
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const daysAgo = Math.round((day(now).getTime() - day(d).getTime()) / 86_400_000); // round: DST days aren't 24h
+  if (daysAgo <= 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  const intoWeek = (now.getDay() + 6) % 7; // days since Monday
+  if (daysAgo <= intoWeek) return "This week";
+  if (daysAgo <= intoWeek + 7) return "Last week";
+  return d.toLocaleDateString(locale, d.getFullYear() === now.getFullYear() ? { month: "long" } : { month: "long", year: "numeric" });
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`;

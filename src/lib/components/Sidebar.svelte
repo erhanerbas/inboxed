@@ -6,11 +6,13 @@
     Folder01Icon,
     InboxIcon,
     Layers01Icon,
+    Moon02Icon,
     NoteEditIcon,
     PlusSignIcon,
     SentIcon,
     SpamIcon,
     StarIcon,
+    Sun01Icon,
   } from "@hugeicons/core-free-icons";
   import { SvelteSet } from "svelte/reactivity";
   import Icon from "./Icon.svelte";
@@ -18,6 +20,7 @@
   import { contextmenu } from "$lib/contextmenu";
   import { accountMenu, markAllReadMenu } from "$lib/menus";
   import { data, syncNow, ui, selectAccount, selectMailbox } from "$lib/state.svelte";
+  import { theme, toggleTheme } from "$lib/theme.svelte";
   import { ROLES, visibleMailboxes } from "$lib/views";
   import type { Mailbox } from "$lib/types";
 
@@ -83,14 +86,22 @@
         {#if unread}
           <span
             aria-hidden="true"
-            class="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-caption font-semibold text-canvas tabular-nums ring-2 ring-canvas"
+            class="absolute -top-1.5 -right-1.5 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1 text-caption font-semibold text-on-accent tabular-nums ring-2 ring-sidebar"
           >
             {unread}
           </span>
         {/if}
       </button>
     {/each}
-    <button class="rail-btn mt-auto" aria-label="Add account" title="Add account" onclick={() => (ui.addingAccount = true)}>
+    <button
+      class="rail-btn mt-auto"
+      aria-label={theme.current === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme.current === "dark" ? "Light mode" : "Dark mode"}
+      onclick={toggleTheme}
+    >
+      <Icon icon={theme.current === "dark" ? Sun01Icon : Moon02Icon} size={18} />
+    </button>
+    <button class="rail-btn" aria-label="Add account" title="Add account" onclick={() => (ui.addingAccount = true)}>
       <Icon icon={PlusSignIcon} size={18} />
     </button>
   </nav>
@@ -136,7 +147,7 @@
       {@render row(m)}
     {/each}
     {#if folders(null).length}
-      <h3 class="mt-5 mb-1 px-2 text-caption font-medium text-ink-muted uppercase">Folders</h3>
+      <h3 class="mt-5 mb-1 px-2 text-caption font-medium text-ink-muted">Folders</h3>
       {#each folders(null) as m (m.id)}
         {@render row(m)}
       {/each}
@@ -153,7 +164,7 @@
     <button
       class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-100 {children.length
         ? 'pr-8'
-        : ''} {selected ? 'bg-raised font-medium' : 'hover:bg-raised/60 active:bg-raised'}"
+        : ''} {selected ? 'bg-selected font-medium' : 'hover:bg-ink/5 active:bg-ink/10'}"
       aria-current={selected ? "page" : undefined}
       onclick={() => selectMailbox(m.id)}
       use:contextmenu={() => markAllReadMenu(ui.accountId, m.id, m.unread)}
@@ -161,14 +172,19 @@
       <Icon icon={glyph} size={16} class="shrink-0 {selected ? 'text-accent' : 'text-ink-muted'}" />
       <span class="min-w-0 flex-1 truncate">{m.name}</span>
       {#if m.unread}
-        <span class="text-caption tabular-nums {m.role === 'inbox' ? 'font-semibold text-accent' : 'text-ink-muted'}">
+        <!-- Inbox counts are orange pills (orange means unread); orange is never text, so the number is dark. -->
+        <span
+          class="text-caption tabular-nums {m.role === 'inbox'
+            ? 'grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1.5 font-semibold text-on-accent'
+            : 'text-ink-muted'}"
+        >
           {m.unread}
         </span>
       {/if}
     </button>
     {#if children.length}
       <button
-        class="absolute top-0 right-0 grid size-7 place-items-center rounded-md text-ink-muted transition-colors duration-100 hover:text-ink active:bg-raised"
+        class="absolute top-0 right-0 grid size-7 place-items-center rounded-md text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
         aria-label="{m.name} subfolders"
         aria-expanded={open}
         onclick={() => toggleFold(m.id)}

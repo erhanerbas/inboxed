@@ -4,15 +4,18 @@
   import Icon from "./Icon.svelte";
   import { frameDoc, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "$lib/html";
   import { compose } from "$lib/state.svelte";
+  import { theme } from "$lib/theme.svelte";
 
   let { html, accountId }: { html: string; accountId: string } = $props();
 
   let frame = $state<HTMLIFrameElement>();
   let remote = $state(false); // per message, per visit: images load only when asked
+  let original = $state(false); // per message, per visit: shown light although the app is dark
   let height = $state(0);
   let hasQuotes = $state(false);
   let showQuotes = $state(false);
-  const doc = $derived(frameDoc(html, remote));
+  const dark = $derived(theme.current === "dark" && !original);
+  const doc = $derived(frameDoc(html, remote, dark));
   let observer: ResizeObserver | undefined;
   let steps = 0;
   const MAX_HEIGHT = 30_000;
@@ -95,10 +98,22 @@
 </script>
 
 {#if hasRemoteContent(html) && !remote}
-  <p class="mb-3 flex items-center justify-between gap-3 rounded-lg bg-panel py-1.5 pr-1.5 pl-3 text-caption text-ink-muted">
+  <p class="mb-3 flex items-center justify-between gap-3 rounded-lg bg-raised py-1.5 pr-1.5 pl-3 text-caption text-ink-muted">
     Remote images are blocked, so the sender can't see you opened this.
     <button class="btn-secondary h-7 shrink-0 px-3 text-caption" onclick={() => (remote = true)}>Load images</button>
   </p>
+{/if}
+{#if theme.current === "dark"}
+  <!-- Darkening is a guess about someone else's design: the original is one click away, above the message. -->
+  <div class="mb-2 flex justify-end">
+    <button
+      class="h-6 rounded-full border border-line px-3 text-caption text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10 aria-pressed:bg-raised aria-pressed:text-ink"
+      aria-pressed={original}
+      onclick={() => (original = !original)}
+    >
+      Original colors
+    </button>
+  </div>
 {/if}
 <!-- allow-same-origin only: no scripts, forms, popups or navigation; the page can measure it and catch clicks. -->
 <iframe
@@ -107,12 +122,13 @@
   sandbox="allow-same-origin"
   srcdoc={doc}
   onload={loaded}
-  class="block w-full rounded-xl bg-white"
+  class="block w-full rounded-xl border border-line"
+  style:background={dark ? "#121212" : "#fff"}
   style:height="{height}px"
 ></iframe>
 {#if hasQuotes}
   <button
-    class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-raised/60"
+    class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
     aria-label={showQuotes ? "Hide quoted text" : "Show quoted text"}
     aria-expanded={showQuotes}
     onclick={toggleQuotes}

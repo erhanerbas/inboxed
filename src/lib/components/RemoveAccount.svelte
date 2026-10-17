@@ -18,7 +18,7 @@
   onclose={() => (ui.removingAccount = null)}
   aria-labelledby="remove-account-title"
   aria-describedby="remove-account-body"
-  class="m-auto w-[26rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-raised p-6 text-ink shadow-[0_24px_60px_rgb(0_0_0/0.5)] backdrop:bg-canvas/60"
+  class="m-auto w-[26rem] max-w-[calc(100vw-2rem)] shadow-float rounded-2xl border border-line bg-float p-6 text-ink backdrop:bg-ink/30"
 >
   <h2 id="remove-account-title" class="text-heading wrap-anywhere">Remove “{account?.name}”?</h2>
   <p id="remove-account-body" class="mt-2 text-ink-muted">

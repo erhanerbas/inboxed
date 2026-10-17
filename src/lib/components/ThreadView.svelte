@@ -4,17 +4,19 @@
     Attachment01Icon,
     Delete02Icon,
     MailSend01Icon,
-    Mail01Icon,
     MailReply01Icon,
     MailReplyAll01Icon,
     MoreHorizontalIcon,
     StarIcon,
   } from "@hugeicons/core-free-icons";
   import Icon from "./Icon.svelte";
+  import { tick } from "svelte";
+  import { prefersReducedMotion } from "svelte/motion";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
   import { archive, data, editDraft, forward, openAttachment, reply, toggleStar, trash, ui } from "$lib/state.svelte";
   import HtmlBody from "./HtmlBody.svelte";
+  import Logo from "./Logo.svelte";
   import { formatDate, formatSize } from "$lib/format";
   import { splitQuoted, unquote } from "$lib/quote";
   import type { Address, Message } from "$lib/types";
@@ -41,6 +43,24 @@
   function toggle(set: SvelteSet<string>, id: string) {
     if (set.has(id)) set.delete(id);
     else set.add(id);
+  }
+
+  // Opening a conversation brings its newest message (the open one, at the bottom of the trail) into view.
+  let messages = $state<HTMLOListElement>();
+  let arrived = false;
+  const reveal = (el: Element | null | undefined) =>
+    el?.scrollIntoView({ behavior: prefersReducedMotion.current ? "auto" : "smooth", block: "start" });
+  $effect(() => {
+    if (!thread || !messages || arrived) return;
+    arrived = true;
+    if (thread.messages.length > 1) reveal(messages.lastElementChild);
+  });
+
+  async function expand(m: Message) {
+    toggle(expanded, m.id);
+    if (!expanded.has(m.id)) return;
+    await tick();
+    reveal(document.getElementById(`message-${m.id}`));
   }
   const names = (list: Address[]) => list.map((a) => a.name).join(", ");
   const preview = (m: Message) => (splitQuoted(m.body).text || m.body).replace(/\s+/g, " ");
@@ -71,29 +91,29 @@
 
     <div class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-3xl px-8 pt-6 pb-10">
-        <h1 class="selectable text-title font-semibold text-balance wrap-anywhere">{thread.subject}</h1>
+        <h1 class="selectable text-title font-medium text-balance wrap-anywhere">{thread.subject}</h1>
         <p class="mt-1 text-caption text-ink-muted">
           {thread.messages.length}
           {thread.messages.length === 1 ? "message" : "messages"}
         </p>
 
         <!-- One flat list: hairlines separate messages, space separates the parts of one message. -->
-        <ol class="mt-6 divide-y divide-line border-t border-line">
+        <ol bind:this={messages} class="mt-6 divide-y divide-line border-t border-line">
           {#each thread.messages as m, i (m.id)}
             {@const latest = i === thread.messages.length - 1}
             {@const open = latest || expanded.has(m.id)}
             {@const body = splitQuoted(m.body)}
-            <li class={open ? "pt-4 pb-6" : "py-1"}>
+            <li id="message-{m.id}" class="scroll-mt-3 {open ? 'pt-4 pb-6' : 'py-1'}">
               <h2>
                 {#if latest}
                   {@render header(m)}
                 {:else}
                   <button
-                    class="-mx-3 block w-[calc(100%+1.5rem)] rounded-lg px-3 text-left transition-colors duration-100 hover:bg-raised/40 active:bg-raised/60 {open
+                    class="-mx-3 block w-[calc(100%+1.5rem)] rounded-lg px-3 text-left transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10 {open
                       ? 'py-1'
                       : 'py-2'}"
                     aria-expanded={open}
-                    onclick={() => toggle(expanded, m.id)}
+                    onclick={() => expand(m)}
                   >
                     {#if open}
                       {@render header(m)}
@@ -119,7 +139,7 @@
                   {/if}
                   {#if body.quoted && body.text}
                     <button
-                      class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-raised/60"
+                      class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
                       aria-label="Show quoted text"
                       aria-expanded={quotesShown.has(m.id)}
                       onclick={() => toggle(quotesShown, m.id)}
@@ -139,7 +159,7 @@
                         {#if !a.inline}
                           <li>
                             <button
-                              class="flex items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 text-caption transition-colors duration-100 hover:bg-raised/70 active:bg-selected"
+                              class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10"
                               title="Save to Downloads and show it"
                               onclick={() => openAttachment(m.id, i)}
                             >
@@ -164,10 +184,11 @@
     </div>
   </article>
 {:else if !ui.threadId}
-  <div data-tauri-drag-region class="grid h-full place-items-center text-ink-muted">
-    <div class="flex flex-col items-center gap-2">
-      <Icon icon={Mail01Icon} size={28} />
-      <p>Select a conversation to read it</p>
+  <!-- The one decorative moment: the mark on a dotted grid, where there's nothing to read yet. -->
+  <div data-tauri-drag-region class="dot-grid grid h-full place-items-center text-ink-muted">
+    <div class="flex flex-col items-center gap-3 text-ink">
+      <Logo size={56} />
+      <p class="text-ink-muted">Select a conversation to read it</p>
     </div>
   </div>
 {/if}

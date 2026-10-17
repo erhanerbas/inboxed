@@ -55,7 +55,7 @@
   transition:rise|global
   aria-label="New message"
   onsubmit={(e) => e.preventDefault()}
-  class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_60px_rgb(0_0_0/0.5)]"
+  class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden shadow-float rounded-2xl border border-line bg-float"
 >
   <header class="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
     <h2 class="truncate font-semibold">{ui.draft.subject || "New message"}</h2>
@@ -92,7 +92,7 @@
   {#if ui.draft.forwardOf && ui.forwarding.length}
     <ul class="flex shrink-0 flex-wrap gap-2 px-4 pb-3" aria-label="Attachments from the original">
       {#each ui.forwarding.filter((a) => !a.inline) as a, i (i)}
-        <li class="flex items-center gap-1.5 rounded-lg bg-panel px-2.5 py-1.5 text-caption">
+        <li class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption">
           <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
           {a.name}
           <span class="text-ink-muted">{formatSize(a.size)}</span>
@@ -101,7 +101,7 @@
     </ul>
   {/if}
   {#if ui.composeError}
-    <p role="alert" class="mx-3 mb-2 rounded-lg bg-panel px-3 py-2 wrap-anywhere">{ui.composeError}</p>
+    <p role="alert" class="mx-3 mb-2 rounded-lg bg-raised px-3 py-2 wrap-anywhere">{ui.composeError}</p>
   {/if}
   <footer class="flex shrink-0 items-center justify-between border-t border-line px-3 py-2">
     <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" disabled={!!busy} onclick={discardDraft}>

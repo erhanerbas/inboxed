@@ -41,6 +41,13 @@ describe("frameDoc", () => {
     expect(doc).toContain("url(https://x.example/b.png)");
   });
 
+  it("dark mail inverts the page and turns pictures back", () => {
+    const dark = frameDoc('<img src="data:image/png;base64,AA">', false, true);
+    expect(dark).toMatch(/:root\s*\{[^}]*filter:\s*invert\(1\) hue-rotate\(180deg\)/);
+    expect(dark).toMatch(/img[^{]*\{[^}]*filter:\s*invert\(1\) hue-rotate\(180deg\)/);
+    expect(frameDoc("<p>Hi</p>", false)).not.toContain("invert(");
+  });
+
   it("hides quoted history unless shown", () => {
     const doc = frameDoc("<p>Hi</p>", false);
     expect(doc).toContain(":root:not(.ib-show-quotes)");
