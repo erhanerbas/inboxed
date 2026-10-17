@@ -31,6 +31,11 @@
       compose();
       return;
     }
+    if (mod && !e.shiftKey && !e.altKey && key === "f") {
+      e.preventDefault();
+      document.getElementById("search")?.focus();
+      return;
+    }
     // Thread commands (reply, archive, ⌫ …) never fire while typing or inside compose and dialogs.
     if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable], form, dialog")) return;
     const selected = data.list.find((t) => t.id === ui.threadId) ?? data.thread ?? undefined;
