@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addresses, dateGroup, forwardBody, formatDate, formatSize, replyQuote } from "./format";
+import { addresses, dateGroup, forwardBody, formatDate, formatSize, replyQuote, swapSignature, withSignature } from "./format";
 import type { Message } from "./types";
 
 // Thursday 15 October 2026, 14:00 local time.
@@ -86,5 +86,21 @@ describe("addresses", () => {
     expect(addresses([{ name: "Chen, Maya", email: "maya@x" }, { name: "sam@x", email: "sam@x" }, { name: "", email: "lee@x" }])).toBe(
       '"Chen, Maya" <maya@x>, sam@x, lee@x',
     );
+  });
+});
+
+describe("signatures", () => {
+  it("go after what's written, or above a reply's quote", () => {
+    expect(withSignature("", "Sam")).toBe("\n\n-- \nSam");
+    expect(withSignature("Hi", " Sam \n")).toBe("Hi\n\n-- \nSam");
+    expect(withSignature("\n\nOn Monday, Maya wrote:\n> Hi", "Sam")).toBe("\n\n-- \nSam\n\nOn Monday, Maya wrote:\n> Hi");
+    expect(withSignature("Hi", "  ")).toBe("Hi");
+  });
+
+  it("swap with the sender, leaving an edited one alone", () => {
+    expect(swapSignature("Hi\n\n-- \nSam", "Sam", "Samuel")).toBe("Hi\n\n-- \nSamuel");
+    expect(swapSignature("Hi\n\n-- \nSam", "Sam", "")).toBe("Hi");
+    expect(swapSignature("Hi", "", "Sam")).toBe("Hi\n\n-- \nSam");
+    expect(swapSignature("Hi\n\n-- \nSam (edited)", "Sam (old)", "New")).toBe("Hi\n\n-- \nSam (edited)");
   });
 });

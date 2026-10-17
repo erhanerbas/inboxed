@@ -2,15 +2,15 @@
   import { MoreHorizontalIcon } from "@hugeicons/core-free-icons";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "./Icon.svelte";
-  import { frameDoc, hasOwnDark, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "$lib/html";
+  import { frameDoc, hasOwnDark, hasRemoteContent, mailtoDraft, MONOSPACE, QUOTE_SELECTOR } from "$lib/html";
   import { compose } from "$lib/state.svelte";
-  import { mailFont } from "$lib/settings.svelte";
+  import { mailFont, settings } from "$lib/settings.svelte";
   import { theme } from "$lib/theme.svelte";
 
   let { html, accountId }: { html: string; accountId: string } = $props();
 
   let frame = $state<HTMLIFrameElement>();
-  let remote = $state(false); // per message, per visit: images load only when asked
+  let remote = $state(settings.loadImages); // per message, per visit: images load only when asked (or always, in Settings)
   let original = $state(false); // per message, per visit: shown light although the app is dark
   let height = $state(0);
   let hasQuotes = $state(false);
@@ -49,6 +49,10 @@
     for (const el of [d.documentElement, d.body]) {
       el.style.setProperty("height", "auto", "important");
       el.style.setProperty("min-height", "0", "important");
+    }
+    // The mail font holds over inline font-family too (a style attribute's !important beats any style sheet).
+    for (const el of d.querySelectorAll<HTMLElement>("[style*='font' i]")) {
+      if (!MONOSPACE.test(el.style.fontFamily)) el.style.removeProperty("font-family");
     }
     observer?.disconnect();
     steps = lastGrowth = 0;

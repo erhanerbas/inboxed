@@ -1,6 +1,7 @@
 import { api, EngineError, follow, send } from "./engine";
-import { addresses, forwardBody, replyQuote } from "./format";
+import { addresses, forwardBody, replyQuote, swapSignature, withSignature } from "./format";
 import { deliver, setBadge, summarize } from "./notify";
+import { settings } from "./settings.svelte";
 import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
@@ -75,8 +76,12 @@ async function reload() {
   // The selected folder may not exist yet (a new account's first sync) or any more (deleted on the server).
   if (ui.accountId !== "all" && !mailboxes.some((m) => m.id === ui.mailboxKey)) ui.mailboxKey = inboxOf(ui.accountId);
   await Promise.all([loadList(), loadThread()]);
-  setBadge(mailboxes.filter((m) => m.role === "inbox").reduce((sum, m) => sum + m.unread, 0));
+  updateBadge();
 }
+
+/** The Dock badge: the inboxes' unread count, unless Settings turned it off. */
+export const updateBadge = () =>
+  setBadge(settings.dockBadge ? data.mailboxes.filter((m) => m.role === "inbox").reduce((sum, m) => sum + m.unread, 0) : 0);
 
 async function refreshAll() {
   data.accounts = await api<Account[]>("/accounts");
@@ -132,7 +137,7 @@ function newMail(batch: NewMail[]) {
   // What you're reading right now needs no banner.
   const waiting = here ? batch.filter((m) => m.threadId !== ui.threadId) : batch;
   ui.newMail = [...waiting, ...ui.newMail].slice(0, 50);
-  if (!here) deliver(summarize(batch, data.accounts));
+  if (!here && settings.notify) deliver(summarize(batch, data.accounts), settings.sound);
 }
 
 /** The banner's Open: the newest mail's conversation, in its account's inbox. The rest keeps waiting. */
@@ -218,7 +223,7 @@ export function openThread(id: string) {
   ui.newMail = ui.newMail.filter((m) => m.threadId !== id); // read now: no banner for it
   return run(async () => {
     await loadThread();
-    if (data.thread?.id === id && data.thread.unread) await setFlags(id, { unread: false });
+    if (settings.markRead && data.thread?.id === id && data.thread.unread) await setFlags(id, { unread: false });
   });
 }
 
@@ -260,12 +265,23 @@ export async function compose(draft: Partial<Draft> = {}): Promise<boolean> {
   if (ui.composing && (await closeCompose())) return false;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
+  // A saved draft already has its signature.
+  if (!draft.draftId) ui.draft.body = withSignature(ui.draft.body, settings.signatures[ui.draft.accountId] ?? "");
   pristine = JSON.stringify(ui.draft);
   ui.forwarding = [];
   ui.composeError = "";
   ui.composeKey++; // always a fresh panel (focus, busy state), even when reopened while the last one closes
   ui.composing = true;
   return true;
+}
+
+/** The panel's From changed: the signature follows. An untouched message stays untouched (closing it saves nothing). */
+export function changeSender(accountId: string) {
+  const untouched = JSON.stringify(ui.draft) === pristine;
+  const sig = (id: string) => settings.signatures[id] ?? "";
+  ui.draft.body = swapSignature(ui.draft.body, sig(ui.draft.accountId), sig(accountId));
+  ui.draft.accountId = accountId;
+  if (untouched) pristine = JSON.stringify(ui.draft);
 }
 
 // Why the panel couldn't send or save, for the panel to show: the engine's words for a refusal, else what to do.

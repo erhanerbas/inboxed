@@ -7,26 +7,34 @@ vi.stubGlobal("localStorage", {
   setItem: (k: string, v: string) => store.set(k, v),
 });
 
-describe("mail font", () => {
+describe("settings", () => {
   beforeEach(() => {
     vi.resetModules();
     store.clear();
   });
 
-  it("is Inter until the person picks one, and remembers the pick", async () => {
-    const { mailFont, setMailFont } = await import("./settings.svelte");
+  it("start from the defaults and remember changes", async () => {
+    const { mailFont, saveSettings, settings } = await import("./settings.svelte");
     expect(mailFont().name).toBe("Inter");
-    setMailFont("garamond");
-    expect(mailFont().name).toBe("EB Garamond");
+    expect(settings).toMatchObject({ markRead: true, loadImages: false, notify: true, sound: true, dockBadge: true });
+    settings.mailFont = "garamond";
+    settings.signatures.a1 = "Sam";
+    saveSettings();
     vi.resetModules();
-    expect((await import("./settings.svelte")).mailFont().name).toBe("EB Garamond");
+    const again = await import("./settings.svelte");
+    expect(again.mailFont().name).toBe("EB Garamond");
+    expect(again.settings.signatures).toEqual({ a1: "Sam" });
   });
 
-  it("ignores fonts it doesn't know", async () => {
-    localStorage.setItem("inboxed.mailFont", "comic-sans");
-    const { mailFont, setMailFont } = await import("./settings.svelte");
+  it("ignore stored values of the wrong kind, unknown fonts and unreadable storage", async () => {
+    store.set("inboxed.settings", JSON.stringify({ mailFont: "comic-sans", markRead: "no", signatures: null, sound: false }));
+    const { mailFont, settings } = await import("./settings.svelte");
     expect(mailFont().name).toBe("Inter");
-    setMailFont("comic-sans");
-    expect(mailFont().name).toBe("Inter");
+    expect(settings.markRead).toBe(true);
+    expect(settings.signatures).toEqual({});
+    expect(settings.sound).toBe(false);
+    vi.resetModules();
+    store.set("inboxed.settings", "{oops");
+    expect((await import("./settings.svelte")).settings.markRead).toBe(true);
   });
 });

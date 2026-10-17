@@ -9,6 +9,7 @@
   import ThreadView from "$lib/components/ThreadView.svelte";
   import { runShortcut } from "$lib/menus";
   import { compose, data, showList, start, ui } from "$lib/state.svelte";
+  import { loadFonts } from "$lib/settings.svelte";
   import { startTheme } from "$lib/theme.svelte";
   import { onMount } from "svelte";
 
@@ -16,6 +17,7 @@
 
   onMount(() => {
     startTheme();
+    loadFonts();
     start();
   });
   // The list follows the view and the search query.

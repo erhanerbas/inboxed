@@ -4,7 +4,7 @@
   import { formatSize } from "$lib/format";
   import Icon from "./Icon.svelte";
   import { rise } from "$lib/motion";
-  import { closeCompose, discardDraft, sendDraft, senders, ui } from "$lib/state.svelte";
+  import { changeSender, closeCompose, discardDraft, sendDraft, senders, ui } from "$lib/state.svelte";
 
   let form = $state<HTMLFormElement>();
   let to = $state<HTMLInputElement>();
@@ -67,7 +67,7 @@
   <label class="field">
     <span>From</span>
     {#if from.length}
-      <select bind:value={ui.draft.accountId}>
+      <select value={ui.draft.accountId} onchange={(e) => changeSender(e.currentTarget.value)}>
         {#each from as a (a.id)}
           <option value={a.id}>{a.name} · {a.email}</option>
         {/each}

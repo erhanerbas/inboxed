@@ -8,6 +8,8 @@ export const theme = $state({
   current: (typeof document !== "undefined" && document.documentElement.dataset.theme === "dark" ? "dark" : "light") as
     | "light"
     | "dark",
+  // What the person picked in Settings (or with the rail's button); "system" until they pick.
+  choice: "system" as "system" | "light" | "dark",
 });
 
 function apply(next: "light" | "dark", remember: boolean) {
@@ -36,10 +38,24 @@ const stored = () => {
 
 /** Follows the system until the person picks a theme; after that their choice sticks. */
 export function startTheme() {
+  const saved = stored();
+  if (saved === "light" || saved === "dark") theme.choice = saved;
   apply(theme.current, false);
   system?.addEventListener("change", (e) => {
     if (!stored()) apply(e.matches ? "dark" : "light", false);
   });
 }
 
-export const toggleTheme = () => apply(theme.current === "dark" ? "light" : "dark", true);
+export const toggleTheme = () => chooseTheme(theme.current === "dark" ? "light" : "dark");
+
+/** Settings' Appearance: a fixed theme, or back to following the system. */
+export function chooseTheme(choice: "system" | "light" | "dark") {
+  theme.choice = choice;
+  if (choice !== "system") return apply(choice, true);
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Still follows the system for this session.
+  }
+  apply(system?.matches ? "dark" : "light", false);
+}

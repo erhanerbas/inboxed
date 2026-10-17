@@ -29,33 +29,49 @@ export const FONTS: MailFont[] = [
   { id: "system", name: "System", family: `-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`, css: "" },
 ];
 
-const KEY = "inboxed.mailFont";
+const KEY = "inboxed.settings";
 
-const stored = () => {
-  try {
-    return localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
+const DEFAULTS = {
+  mailFont: "inter",
+  markRead: true, // opening a conversation marks it read
+  loadImages: false, // remote images load without asking (the sender can then see the mail was opened)
+  notify: true, // a desktop notification for new mail while Inboxed isn't in front
+  sound: true,
+  dockBadge: true, // the inboxes' unread count on the Dock icon
+  signatures: {} as Record<string, string>, // by account id
 };
 
-export const settings = $state({ mailFont: FONTS.some((f) => f.id === stored()) ? stored()! : "inter" });
-
-export const mailFont = () => FONTS.find((f) => f.id === settings.mailFont) ?? FONTS[0];
-
-export function setMailFont(id: string) {
-  if (!FONTS.some((f) => f.id === id)) return;
-  settings.mailFont = id;
+// Stored values only count when they're of the right kind: anything else is the default.
+function load(): typeof DEFAULTS {
+  const out = structuredClone(DEFAULTS);
   try {
-    localStorage.setItem(KEY, id);
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    for (const k of Object.keys(DEFAULTS) as (keyof typeof DEFAULTS)[]) {
+      if (saved?.[k] !== null && typeof saved?.[k] === typeof DEFAULTS[k]) (out as Record<string, unknown>)[k] = saved[k];
+    }
   } catch {
-    // Not remembered; the choice still holds for this session.
+    // Unreadable: the defaults.
+  }
+  if (!FONTS.some((f) => f.id === out.mailFont)) out.mailFont = DEFAULTS.mailFont;
+  return out;
+}
+
+export const settings = $state(load());
+
+/** Remembers the settings as they are now. Settings.svelte calls it after every change. */
+export function saveSettings() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(settings));
+  } catch {
+    // Not remembered; the change still holds for this session.
   }
 }
 
-// The page itself needs the faces too: plain-text mail, and Settings shows each name in its own font. Files load only
-// when text uses them.
-if (typeof document !== "undefined") {
+export const mailFont = () => FONTS.find((f) => f.id === settings.mailFont) ?? FONTS[0];
+
+/** The page itself needs the faces too: plain-text mail, and Settings shows each name in its own font. Files load only
+ *  when text uses them. Called once, at startup. */
+export function loadFonts() {
   const style = document.createElement("style");
   style.textContent = FONTS.map((f) => f.css).join("\n");
   document.head.append(style);

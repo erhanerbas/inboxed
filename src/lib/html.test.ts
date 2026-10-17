@@ -35,7 +35,8 @@ describe("frameDoc", () => {
     const font = { family: '"Geist Variable", sans-serif', css: "@font-face { font-family: 'Geist Variable'; }" };
     const doc = frameDoc('<p style="font-family: Arial">Hi</p><pre>code</pre>', false, false, font);
     expect(doc).toContain("@font-face { font-family: 'Geist Variable'; }");
-    expect(doc).toMatch(/@layer ib-font \{ body, body :not\(pre, pre \*, code, kbd, samp, tt\) \{ font-family: "Geist Variable", sans-serif !important; \} \}/);
+    expect(doc).toMatch(/@layer ib-font \{ body, body :not\(pre, pre \*, code, code \*, .*\) \{ font-family: "Geist Variable", sans-serif !important; \} \}/);
+    for (const kept of ['font[face*="mono" i] *', '[style*="courier" i]', "tt *"]) expect(doc).toContain(kept);
     expect(csp(doc)).toMatch(/font-src data: 'self'/);
     expect(csp(doc)).not.toContain("https:");
     expect(csp(frameDoc("<p>Hi</p>", false))).not.toContain("'self'");

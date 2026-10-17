@@ -65,7 +65,7 @@ vi.mock("./engine", () => {
 
 vi.mock("./notify", async (real) => ({
   ...(await real<typeof import("./notify")>()),
-  deliver: async (n: unknown) => void engine.delivered.push(n),
+  deliver: async (n: object, sound = true) => void engine.delivered.push(sound ? n : { ...n, silent: true }),
   setBadge: (n: number) => void (engine.badge = n),
 }));
 
@@ -88,6 +88,12 @@ describe("opening", () => {
     expect(s.data.thread?.id).toBe("t1");
     expect(writes()).toEqual([{ path: "/threads/t1", method: "PATCH", body: { unread: false } }]);
     expect(engine.calls.some((c) => c.path === "/mailboxes")).toBe(true); // counts come back from the engine
+  });
+
+  it("leaves it unread when Settings says to mark read by hand", async () => {
+    (await import("./settings.svelte")).settings.markRead = false;
+    await s.openThread("t1");
+    expect(writes()).toEqual([]);
   });
 
   it("doesn't write when the thread is already read", async () => {
@@ -129,6 +135,25 @@ describe("composing", () => {
     expect(s.ui.draft).toMatchObject({ to: "", subject: "Fwd: Inboxed design review" });
     expect(s.ui.draft.threadId).toBeUndefined(); // a forward starts a new conversation
     expect(s.ui.draft.body).toContain("Forwarded message");
+  });
+
+  it("signs new messages, replies and forwards, but not resumed drafts; the signature follows the sender", async () => {
+    const { settings } = await import("./settings.svelte");
+    settings.signatures = { a2: "Sam\nInboxed" };
+    await s.compose();
+    expect(s.ui.draft.body).toBe("\n\n-- \nSam\nInboxed");
+    await s.closeCompose(); // untouched apart from the signature: nothing saved
+    expect(writes()).toEqual([]);
+    await s.reply("t1");
+    expect(s.ui.draft.body).toMatch(/^\n\n-- \nSam\nInboxed\n\nOn .* Maya Chen wrote:/);
+    s.changeSender("a9"); // an account without a signature
+    expect(s.ui.draft.body).toMatch(/^\n\nOn /);
+    s.changeSender("a2");
+    expect(s.ui.draft.body).toMatch(/^\n\n-- \nSam\nInboxed\n\nOn /);
+    await s.closeCompose();
+    expect(writes()).toEqual([]); // switching back and forth isn't typing
+    await s.editDraft({ ...engine.thread.messages[0], subject: "Plans", body: "Saved", draft: true } as never);
+    expect(s.ui.draft.body).toBe("Saved");
   });
 
   it("send posts the draft, closes the panel and reloads", async () => {
@@ -370,6 +395,17 @@ describe("new mail", () => {
     expect(s.ui.newMail).toEqual(batch);
   });
 
+  it("Settings can silence notifications, or turn them off", async () => {
+    const { settings } = await import("./settings.svelte");
+    engine.focused = false;
+    settings.sound = false;
+    engine.mail?.(batch);
+    settings.notify = false;
+    engine.mail?.(batch);
+    await Promise.resolve();
+    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?", silent: true }]);
+  });
+
   it("Open goes to the account's inbox and the conversation, and clears the banner", async () => {
     engine.mail?.(batch);
     await s.openNewMail();
@@ -414,7 +450,13 @@ describe("new mail", () => {
     expect(s.ui.newMail).toEqual([]);
   });
 
-  it("the Dock badge counts unread mail in the inboxes", async () => {
+  it("the Dock badge counts unread mail in the inboxes, unless Settings turned it off", async () => {
     expect(engine.badge).toBe(0); // set by start()'s reload
+    s.data.mailboxes = [{ id: "a2-inbox", accountId: "a2", role: "inbox", unread: 3 } as never];
+    s.updateBadge();
+    expect(engine.badge).toBe(3);
+    (await import("./settings.svelte")).settings.dockBadge = false;
+    s.updateBadge();
+    expect(engine.badge).toBe(0);
   });
 });

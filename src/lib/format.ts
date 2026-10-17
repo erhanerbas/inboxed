@@ -65,6 +65,21 @@ export function replyQuote(m: Message, locale?: string): string {
   return `\n\nOn ${fullDate(m.date, locale)}, ${m.from.name || m.from.email} wrote:\n${quoted.join("\n")}`;
 }
 
+/** Where a signature goes in a new message: after what's already written, or above a reply's or forward's quote
+ *  (those start with room to type). The "-- " line lets mail apps recognize it. */
+export function withSignature(body: string, signature: string): string {
+  const sig = signature.trim();
+  if (!sig) return body;
+  return body.startsWith("\n") ? `\n\n-- \n${sig}${body}` : `${body}\n\n-- \n${sig}`;
+}
+
+/** A message whose sender changed: the old account's signature becomes the new one's (or goes, or is added). */
+export function swapSignature(body: string, from: string, to: string): string {
+  const old = from.trim() && `\n\n-- \n${from.trim()}`;
+  if (old && body.includes(old)) return body.replace(old, to.trim() ? `\n\n-- \n${to.trim()}` : "");
+  return old ? body : withSignature(body, to);
+}
+
 /** What a forward starts with: room to type, the original's headers, then its text. */
 export function forwardBody(m: Message, subject: string, locale?: string): string {
   return [

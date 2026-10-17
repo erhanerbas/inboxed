@@ -1,9 +1,28 @@
 <script lang="ts">
-  import { ui } from "$lib/state.svelte";
-  import { FONTS, setMailFont, settings } from "$lib/settings.svelte";
+  import Avatar from "./Avatar.svelte";
+  import { data, senders, ui, updateBadge } from "$lib/state.svelte";
+  import { FONTS, saveSettings, settings } from "$lib/settings.svelte";
+  import { chooseTheme, theme } from "$lib/theme.svelte";
 
   let dialog = $state<HTMLDialogElement>();
   $effect(() => dialog?.showModal());
+
+  const tabs = ["General", "Reading", "Notifications", "Accounts"] as const;
+  let tab = $state<(typeof tabs)[number]>("General");
+  const themes = [
+    { id: "system", name: "System" },
+    { id: "light", name: "Light" },
+    { id: "dark", name: "Dark" },
+  ] as const;
+
+  // Tabs as the platform does them: arrows move between them, and the tab follows focus.
+  function arrows(e: KeyboardEvent) {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    tab = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
+    document.getElementById(`settings-tab-${tab}`)?.focus();
+  }
 </script>
 
 <!-- Choices apply as they're made: there's nothing to save, so the only button is Done. -->
@@ -11,36 +30,153 @@
   bind:this={dialog}
   onclose={() => (ui.settingsOpen = false)}
   aria-labelledby="settings-title"
-  class="m-auto w-[28rem] max-w-[calc(100vw-2rem)] shadow-float rounded-2xl border border-line bg-float p-6 text-ink backdrop:bg-ink/30"
+  class="m-auto flex h-[min(36rem,calc(100vh-4rem))] w-[34rem] max-w-[calc(100vw-2rem)] flex-col shadow-float rounded-2xl border border-line bg-float text-ink backdrop:bg-ink/30"
 >
-  <h2 id="settings-title" class="text-heading">Settings</h2>
-
-  <fieldset class="mt-5">
-    <legend class="font-medium">Mail font</legend>
-    <p class="mt-1 text-caption text-ink-muted">Every message is shown in this font, whatever the sender chose.</p>
-    <div class="mt-3 flex flex-col gap-1">
-      {#each FONTS as f (f.id)}
-        <label
-          class="flex cursor-default items-center gap-3 rounded-lg px-3 py-2 transition-colors duration-100 hover:bg-ink/5 has-checked:bg-selected"
+  <header class="px-6 pt-5">
+    <h2 id="settings-title" class="text-heading">Settings</h2>
+    <div role="tablist" aria-label="Settings sections" tabindex="-1" class="mt-4 flex gap-1 border-b border-line" onkeydown={arrows}>
+      {#each tabs as t (t)}
+        <button
+          id="settings-tab-{t}"
+          role="tab"
+          aria-selected={tab === t}
+          aria-controls="settings-panel"
+          tabindex={tab === t ? 0 : -1}
+          class="-mb-px border-b-2 px-2.5 pb-2 transition-colors duration-100 active:text-ink {tab === t
+            ? 'border-accent font-medium text-ink'
+            : 'border-transparent text-ink-muted hover:text-ink'}"
+          onclick={() => (tab = t)}
         >
-          <input
-            type="radio"
-            name="mail-font"
-            value={f.id}
-            checked={settings.mailFont === f.id}
-            onchange={() => setMailFont(f.id)}
-            class="accent-accent"
-          />
-          <span class="min-w-0 flex-1" style:font-family={f.family}>
-            <span class="block text-read">{f.name}</span>
-            <span class="block truncate text-ink-muted">Thanks for the notes. I'll send the draft on Monday.</span>
-          </span>
-        </label>
+          {t}
+        </button>
       {/each}
     </div>
-  </fieldset>
+  </header>
 
-  <div class="mt-6 flex justify-end">
-    <button class="btn-primary" onclick={() => dialog?.close()}>Done</button>
+  <div id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-{tab}" class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+    {#if tab === "General"}
+      <fieldset>
+        <legend class="font-medium">Appearance</legend>
+        <div class="mt-2 inline-flex rounded-lg border border-line p-0.5">
+          {#each themes as t (t.id)}
+            <label
+              class="rounded-md px-3 py-1 transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10 has-checked:bg-selected has-checked:font-medium has-focus-visible:outline-2 has-focus-visible:outline-accent"
+            >
+              <input
+                type="radio"
+                name="theme"
+                class="sr-only"
+                checked={theme.choice === t.id}
+                onchange={() => chooseTheme(t.id)}
+              />
+              {t.name}
+            </label>
+          {/each}
+        </div>
+        <p class="mt-1.5 text-caption text-ink-muted">System follows your Mac's light or dark appearance.</p>
+      </fieldset>
+
+      <fieldset class="mt-6">
+        <legend class="font-medium">Mail font</legend>
+        <p class="mt-1 text-caption text-ink-muted">Every message is shown in this font, whatever the sender chose.</p>
+        <div class="mt-3 flex flex-col gap-1">
+          {#each FONTS as f (f.id)}
+            <label
+              class="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10 has-checked:bg-selected"
+            >
+              <input
+                type="radio"
+                name="mail-font"
+                checked={settings.mailFont === f.id}
+                onchange={() => {
+                  settings.mailFont = f.id;
+                  saveSettings();
+                }}
+                class="accent-accent"
+              />
+              <span class="min-w-0 flex-1" style:font-family={f.family}>
+                <span class="block text-read">{f.name}</span>
+                <span class="block truncate text-ink-muted">Thanks for the notes. I'll send the draft on Monday.</span>
+              </span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+    {:else if tab === "Reading"}
+      {@render toggle("markRead", "Mark as read when opened", "Off: conversations stay unread until you mark them read.")}
+      {@render toggle(
+        "loadImages",
+        "Load remote images automatically",
+        "Senders can then tell when you open their mail, and where you are. Off: each message asks first.",
+      )}
+    {:else if tab === "Notifications"}
+      {@render toggle("notify", "Notify me about new mail", "Only while Inboxed isn't the app in front. In front, a banner shows it.")}
+      {@render toggle("sound", "Play a sound", "With each notification.", !settings.notify)}
+      {@render toggle("dockBadge", "Unread count on the Dock icon", "The number of unread conversations in your inboxes.", false, updateBadge)}
+    {:else}
+      {#if !data.accounts.length}
+        <p class="text-ink-muted">No accounts yet.</p>
+      {/if}
+      <ul class="flex flex-col divide-y divide-line">
+        {#each data.accounts as a (a.id)}
+          <li class="py-4 first:pt-0">
+            <div class="flex items-center gap-3">
+              <Avatar name={a.name} color={a.color} size={28} />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{a.name}</span>
+                <span class="block truncate text-caption text-ink-muted">{a.email}</span>
+              </span>
+              <button class="btn-secondary h-7 px-3 text-caption" onclick={() => (ui.removingAccount = a.id)}>Remove…</button>
+            </div>
+            {#if senders().some((s) => s.id === a.id)}
+              <label class="stack-field mt-3">
+                <span>Signature</span>
+                <textarea
+                  rows="3"
+                  placeholder="Added to new messages, replies and forwards from this account"
+                  value={settings.signatures[a.id] ?? ""}
+                  oninput={(e) => {
+                    settings.signatures[a.id] = e.currentTarget.value;
+                    saveSettings();
+                  }}
+                ></textarea>
+              </label>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      <button class="btn-secondary mt-2" onclick={() => (ui.addingAccount = true)}>Add account</button>
+    {/if}
   </div>
+
+  <footer class="flex justify-end border-t border-line px-6 py-4">
+    <button class="btn-primary" onclick={() => dialog?.close()}>Done</button>
+  </footer>
 </dialog>
+
+{#snippet toggle(
+  key: "markRead" | "loadImages" | "notify" | "sound" | "dockBadge",
+  label: string,
+  hint: string,
+  disabled = false,
+  after?: () => void,
+)}
+  <label class="flex items-start gap-4 py-3 first:pt-0 {disabled ? 'opacity-50' : ''}">
+    <span class="min-w-0 flex-1">
+      <span class="block font-medium">{label}</span>
+      <span class="mt-0.5 block text-caption text-ink-muted">{hint}</span>
+    </span>
+    <input
+      type="checkbox"
+      role="switch"
+      class="switch mt-0.5"
+      {disabled}
+      checked={settings[key]}
+      onchange={(e) => {
+        settings[key] = e.currentTarget.checked;
+        saveSettings();
+        after?.();
+      }}
+    />
+  </label>
+{/snippet}

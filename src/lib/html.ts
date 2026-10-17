@@ -34,7 +34,8 @@ img, video, canvas, svg image, [background], [style*="background-image"], [style
 :is([background], [style*="background"]) :is(img, video, canvas, svg image) { filter: none; }`;
 
 // Mail that brings its own dark design gets to use it: the frame says dark instead of being inverted.
-const NATIVE_DARK = `:root { color-scheme: dark; } body { background: #121212; color: #ededed; }`;
+const NATIVE_DARK = `:root { color-scheme: dark; } body { background: #121212; color: #ededed; }
+::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.25); }`;
 const OWN_DARK = /prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/i;
 
 /** Whether the message has a dark design of its own (it is then shown that way rather than inverted). */
@@ -48,10 +49,15 @@ const INERT_LINK = /<(\/?)(link)\b/gi;
 // Protocol-relative URLs would resolve against the app (tauri://…) inside srcdoc: give them https.
 const PROTOCOL_RELATIVE = /(\b(?:src|href|srcset|poster|background)\s*=\s*["']?\s*|url\(\s*["']?\s*)\/\/(?=[\w.-])/gi;
 
-/** The reader's mail font: every element in it, code aside, with the font's own @font-face rules. In a layer, so it
- *  beats the mail's own !important rules whatever their specificity (layered important wins over unlayered). */
+/** Monospace in mail: code, Gmail's "Fixed width", and text styled in a fixed-width face. It keeps its font. */
+export const MONOSPACE = /mono|courier|consolas|menlo/i;
+const FIXED = ["pre", "code", "kbd", "samp", "tt", 'font[face*="mono" i]', 'font[face*="courier" i]', ...["mono", "courier", "consolas", "menlo"].map((f) => `[style*="${f}" i]`)];
+
+/** The reader's mail font: every element in it, monospace aside, with the font's own @font-face rules. In a layer, so
+ *  it beats the mail's own !important style sheets whatever their specificity (layered important wins over unlayered);
+ *  HtmlBody removes inline font-family, which no layer can beat. */
 const fontRules = (font: { family: string; css: string }) =>
-  `${font.css}\n@layer ib-font { body, body :not(pre, pre *, code, kbd, samp, tt) { font-family: ${font.family} !important; } }`;
+  `${font.css}\n@layer ib-font { body, body :not(${FIXED.flatMap((f) => [f, `${f} *`]).join(", ")}) { font-family: ${font.family} !important; } }`;
 
 /** The frame's document: the policy first, then the message. remote allows images, styles and fonts from the web;
  *  dark shows it dark: in its own dark design when it has one, else inverted; font sets every text in the reader's

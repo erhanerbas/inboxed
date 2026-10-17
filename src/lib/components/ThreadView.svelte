@@ -63,13 +63,23 @@
     await tick();
     reveal(document.getElementById(`message-${m.id}`));
   }
-  // A long conversation shows its first message, how many are folded, and the last two (the newest open).
+  // A long conversation shows its first message, how many are folded, and the last two (the newest open). What folds is
+  // decided once, as it opens: mail arriving while you read adds to the end and never folds away what you're reading.
+  let foldEnd: number | undefined; // messages 1 up to (not including) this one fold; set once, at the first render
   let unfolded = $state(false);
   const rows = $derived.by(() => {
     const all = thread?.messages ?? [];
-    if (unfolded || all.length <= 4) return all.map((m) => ({ m, folded: 0 }));
-    return [{ m: all[0], folded: 0 }, { m: null, folded: all.length - 3 }, ...all.slice(-2).map((m) => ({ m, folded: 0 }))];
+    if (all.length) foldEnd ??= all.length > 4 ? all.length - 2 : 0;
+    if (unfolded || !foldEnd) return all.map((m) => ({ m, folded: 0 }));
+    return [{ m: all[0], folded: 0 }, { m: null, folded: foldEnd - 1 }, ...all.slice(foldEnd).map((m) => ({ m, folded: 0 }))];
   });
+  // Unfolding removes the button you pressed: focus goes to the first message it revealed.
+  async function unfold() {
+    const first = thread?.messages[1];
+    unfolded = true;
+    await tick();
+    if (first) document.querySelector<HTMLElement>(`[id="message-${first.id}"] button`)?.focus();
+  }
   const names = (list: Address[]) => list.map((a) => a.name).join(", ");
   const preview = (m: Message) => (splitQuoted(m.body).text || m.body).replace(/\s+/g, " ");
 </script>
@@ -113,9 +123,9 @@
               <li>
                 <button
                   class="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-lg px-3 py-2 text-left text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10"
-                  onclick={() => (unfolded = true)}
+                  onclick={unfold}
                 >
-                  <span class="grid w-8 shrink-0 place-items-center">
+                  <span class="grid w-8 shrink-0 place-items-center" aria-hidden="true">
                     <span class="grid h-5 min-w-6 place-items-center rounded-full border border-line px-1.5 text-caption tabular-nums"
                       >{folded}</span
                     >
@@ -207,7 +217,7 @@
                         <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id)}>
                           <Icon icon={MailReply01Icon} size={15} /> Reply
                         </button>
-                        {#if m.to.length + m.cc.length > 1}
+                        {#if thread.participants.length > 1}
                           <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id, true)}>
                             <Icon icon={MailReplyAll01Icon} size={15} /> Reply All
                           </button>

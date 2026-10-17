@@ -22,15 +22,16 @@ export function summarize(batch: NewMail[], accounts: Account[]): { title: strin
 
 let allowed: Promise<boolean> | undefined; // asked once, at the first new mail rather than at launch
 
-/** Shows a native notification with sound. A refusal or failure is logged: the banner and badge still work. */
-export async function deliver(n: { title: string; body: string }) {
+/** Shows a native notification, with sound unless asked not to. A refusal or failure is logged: the banner and badge
+ *  still work. */
+export async function deliver(n: { title: string; body: string }, sound = true) {
   try {
     if (inTauri()) {
       allowed ??= (async () => (await isPermissionGranted()) || (await requestPermission()) === "granted")();
-      if (await allowed) sendNotification({ title: n.title, body: n.body, sound: "Ping" });
+      if (await allowed) sendNotification({ title: n.title, body: n.body, sound: sound ? "Ping" : undefined });
     } else if ("Notification" in window) {
       allowed ??= (async () => Notification.permission === "granted" || (await Notification.requestPermission()) === "granted")();
-      if (await allowed) new Notification(n.title, { body: n.body }).onclick = () => window.focus();
+      if (await allowed) new Notification(n.title, { body: n.body, silent: !sound }).onclick = () => window.focus();
     }
   } catch (err) {
     allowed = undefined;
