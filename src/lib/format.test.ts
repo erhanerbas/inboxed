@@ -18,27 +18,35 @@ describe("formatDate", () => {
 });
 
 describe("dateGroup", () => {
-  const group = (iso: string) => dateGroup(iso, now, "en-US");
-  it("Today, and mail dated in the future (a sender's wrong clock)", () => {
-    expect(group(at(2026, 9, 15, 0, 1))).toBe("Today");
-    expect(group(at(2026, 9, 16, 9, 0))).toBe("Today");
+  // Labels only: the key is checked separately.
+  const group = (iso: string, at = now) => {
+    const { big, small, name } = dateGroup(iso, at, "en-US");
+    return [big, small, name];
+  };
+  it("today shows the day number over Today", () => {
+    expect(group(at(2026, 9, 15, 0, 1))).toEqual(["15", "Today", "Today"]);
   });
-  it("Yesterday", () => expect(group(at(2026, 9, 14, 23, 59))).toBe("Yesterday"));
-  it("a missing date (mail still being imported) counts as Today", () => expect(group("")).toBe("Today"));
-  it("This week starts on Monday", () => {
-    expect(group(at(2026, 9, 12, 8, 0))).toBe("This week");
-    expect(group(at(2026, 9, 11, 22, 0))).toBe("Last week");
+  it("mail dated in the future (a wrong clock) or undated (still importing) counts as today", () => {
+    expect(group(at(2026, 9, 16, 9, 0))).toEqual(["15", "Today", "Today"]);
+    expect(group("")).toEqual(["15", "Today", "Today"]);
   });
-  it("Last week runs Monday to Sunday", () => expect(group(at(2026, 9, 5, 0, 0))).toBe("Last week"));
-  it("then the month, then month and year", () => {
-    expect(group(at(2026, 9, 4, 12, 0))).toBe("October");
-    expect(group(at(2026, 8, 30))).toBe("September");
-    expect(group(at(2025, 11, 24))).toBe("December 2025");
+  it("yesterday, then the weekday for the rest of the last seven days", () => {
+    expect(group(at(2026, 9, 14, 23, 59))).toEqual(["14", "Yesterday", "Yesterday"]);
+    expect(group(at(2026, 9, 9, 8, 0))).toEqual(["9", "Fri", "Friday, October 9"]);
   });
-  it("on a Monday, Yesterday is Sunday of last week", () => {
-    const monday = new Date(2026, 9, 12, 9, 0);
-    expect(dateGroup(at(2026, 9, 11, 9, 0), monday, "en-US")).toBe("Yesterday");
-    expect(dateGroup(at(2026, 9, 10, 9, 0), monday, "en-US")).toBe("Last week");
+  it("then the month, with its year when that isn't this year", () => {
+    expect(group(at(2026, 9, 8, 12, 0))).toEqual(["Oct", "", "October"]);
+    expect(group(at(2026, 8, 30))).toEqual(["Sep", "", "September"]);
+    expect(group(at(2025, 11, 24))).toEqual(["Dec", "2025", "December 2025"]);
+  });
+  it("one key per day, then per month", () => {
+    const key = (iso: string) => dateGroup(iso, now, "en-US").key;
+    expect(key(at(2026, 9, 14, 1))).toBe(key(at(2026, 9, 14, 23)));
+    expect(key(at(2026, 9, 14))).not.toBe(key(at(2026, 9, 13)));
+    expect(key(at(2026, 8, 2))).toBe(key(at(2026, 8, 29)));
+    expect(key(at(2026, 8, 2))).not.toBe(key(at(2025, 8, 2)));
+    expect(dateGroup(at(2026, 9, 9), now).day).toBe(true);
+    expect(dateGroup(at(2026, 9, 8), now).day).toBe(false);
   });
 });
 

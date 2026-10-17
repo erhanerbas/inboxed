@@ -14,19 +14,39 @@ export function formatDate(iso: string, now = new Date(), locale?: string): stri
   return d.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" });
 }
 
-/** The heading a message list groups a date under: Today, Yesterday, This week, Last week (weeks start on Monday),
- *  then the month, with its year when that isn't this year. */
-export function dateGroup(iso: string, now = new Date(), locale?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Today"; // the engine stores mail a moment before its date
+/** Where a message list files a date: one group per day for the last seven days (big: the day number, small: Today,
+ *  Yesterday or the weekday), then one per month (big: the month, small: its year when that isn't this year).
+ *  name is the group's full name, for screen readers; day says whether the group is a single day. */
+export function dateGroup(
+  iso: string,
+  now = new Date(),
+  locale?: string,
+): { key: string; day: boolean; big: string; small: string; name: string } {
+  let d = new Date(iso);
+  if (Number.isNaN(d.getTime()) || d > now) d = now; // undated (still importing) or a sender's wrong clock
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
   const daysAgo = Math.round((day(now).getTime() - day(d).getTime()) / 86_400_000); // round: DST days aren't 24h
-  if (daysAgo <= 0) return "Today";
-  if (daysAgo === 1) return "Yesterday";
-  const intoWeek = (now.getDay() + 6) % 7; // days since Monday
-  if (daysAgo <= intoWeek) return "This week";
-  if (daysAgo <= intoWeek + 7) return "Last week";
-  return d.toLocaleDateString(locale, d.getFullYear() === now.getFullYear() ? { month: "long" } : { month: "long", year: "numeric" });
+  if (daysAgo < 7) {
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const big = String(d.getDate());
+    if (daysAgo === 0) return { key, day: true, big, small: "Today", name: "Today" };
+    if (daysAgo === 1) return { key, day: true, big, small: "Yesterday", name: "Yesterday" };
+    return {
+      key,
+      day: true,
+      big,
+      small: d.toLocaleDateString(locale, { weekday: "short" }),
+      name: d.toLocaleDateString(locale, { weekday: "long", month: "long", day: "numeric" }),
+    };
+  }
+  const thisYear = d.getFullYear() === now.getFullYear();
+  return {
+    key: `${d.getFullYear()}-${d.getMonth()}`,
+    day: false,
+    big: d.toLocaleDateString(locale, { month: "short" }),
+    small: thisYear ? "" : String(d.getFullYear()),
+    name: d.toLocaleDateString(locale, thisYear ? { month: "long" } : { month: "long", year: "numeric" }),
+  };
 }
 
 export function formatSize(bytes: number): string {

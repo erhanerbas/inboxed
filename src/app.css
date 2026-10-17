@@ -35,6 +35,11 @@
   --text-heading--font-weight: 600;
   --text-read: 0.9375rem;
   --text-read--line-height: 1.6;
+  /* The day gutter's numerals: the one large, tight setting in the app. */
+  --text-day: 1.875rem;
+  --text-day--line-height: 1.1;
+  --text-day--letter-spacing: -0.04em;
+  --text-day--font-weight: 500;
   --text-title: 1.5rem;
   --text-title--line-height: 1.25;
   --text-title--letter-spacing: -0.02em;
@@ -121,15 +126,6 @@
 
   .icon-btn {
     @apply grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10;
-  }
-  /* The account rail is the structural layer: a heavier material than the mailbox list beside it. */
-  .rail-material {
-    background: color-mix(in srgb, var(--color-canvas) 45%, transparent);
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    .rail-material {
-      background: var(--color-canvas);
-    }
   }
   .rail-btn {
     @apply relative grid size-10 place-items-center rounded-xl text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10;

@@ -1,27 +1,31 @@
 <script lang="ts">
-  import { Attachment01Icon, InboxIcon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
+  import { Attachment01Icon, InboxIcon, PencilEdit02Icon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
   import Icon from "./Icon.svelte";
+  import FolderMenu from "./FolderMenu.svelte";
   import { contextmenu } from "$lib/contextmenu";
   import { threadMenu } from "$lib/menus";
-  import { data, ui, openThread } from "$lib/state.svelte";
-  import { visibleMailboxes } from "$lib/views";
+  import { compose, data, syncNow, ui, openThread } from "$lib/state.svelte";
   import { dateGroup, formatDate } from "$lib/format";
+
+  const formatTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   import type { ThreadSummary } from "$lib/types";
 
   const list = $derived(data.list); // already filtered and searched by the engine
-  const title = $derived(
-    visibleMailboxes(data.mailboxes, ui.accountId).find((m) => m.id === ui.mailboxKey)?.name ?? "",
-  );
   const accountColor = (id: string) => data.accounts.find((a) => a.id === id)?.color;
+  const account = $derived(data.accounts.find((a) => a.id === ui.accountId));
+  const importing = $derived(data.accounts.filter((a) => a.sync?.state === "importing"));
+  const failing = $derived(data.accounts.filter((a) => a.sync?.state === "error"));
+  const isMac = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
 
-  // Runs of conversations under one date heading. The engine sends newest first, so each heading appears once.
+  // The day gutter: runs of conversations under one day (the last seven days) or month. The engine sends newest
+  // first, so each group appears once.
   const groups = $derived.by(() => {
     const now = new Date();
-    const out: { label: string; threads: ThreadSummary[] }[] = [];
+    const out: (ReturnType<typeof dateGroup> & { threads: ThreadSummary[] })[] = [];
     for (const t of list) {
-      const label = dateGroup(t.lastDate, now);
-      if (out.at(-1)?.label === label) out.at(-1)!.threads.push(t);
-      else out.push({ label, threads: [t] });
+      const g = dateGroup(t.lastDate, now);
+      if (out.at(-1)?.key === g.key) out.at(-1)!.threads.push(t);
+      else out.push({ ...g, threads: [t] });
     }
     return out;
   });
@@ -44,19 +48,35 @@
 <svelte:window onkeydown={move} />
 
 <section aria-label="Messages" class="flex h-full flex-col">
-  <!-- With the sidebar collapsed, the toolbar buttons sit over this header's leading edge, so the title moves aside. -->
-  <header
-    data-tauri-drag-region
-    class="flex h-13 shrink-0 items-center justify-between gap-3 pr-4 transition-[padding] duration-200 ease-out motion-reduce:transition-none {ui.sidebarCollapsed
-      ? 'pl-[5.5rem]'
-      : 'pl-4'}"
-  >
-    <h2 class="truncate text-heading">{title}</h2>
-    <span class="shrink-0 text-caption text-ink-muted">
-      {list.length}
-      {list.length === 1 ? "conversation" : "conversations"}
-    </span>
+  <header data-tauri-drag-region class="flex h-13 shrink-0 items-center justify-between gap-3 pr-3 pl-4">
+    <FolderMenu />
+    <button class="icon-btn shrink-0" aria-label="New message" title="New message ({isMac ? '⌘N' : 'Ctrl+N'})" onclick={() => compose()}>
+      <Icon icon={PencilEdit02Icon} size={17} />
+    </button>
   </header>
+
+  <!-- Which account this is, and how its sync is going. -->
+  <div class="-mt-2 px-4 pb-3 text-caption text-ink-muted">
+    {#if account?.sync?.state === "importing"}
+      {@const { done, total } = account.sync}
+      <!-- No live region: a counter that changes every second and a half would talk over everything. -->
+      <p>{total ? `Importing ${done.toLocaleString()} of ${total.toLocaleString()}` : "Looking for mail…"}</p>
+      <progress class="import mt-1.5" max={total || undefined} value={total ? done : undefined} aria-label="Import progress"
+      ></progress>
+    {:else if account?.sync?.state === "error"}
+      <p class="wrap-anywhere">
+        Couldn't sync: {account.sync.error}
+        <button class="font-medium text-ink underline underline-offset-2" onclick={() => syncNow(account.id)}>Try again</button>
+      </p>
+    {:else if !account && failing.length}
+      <!-- The account's own view has the reason and Try again. -->
+      <p class="wrap-anywhere">Couldn't sync {failing.map((a) => a.name).join(", ")}</p>
+    {:else if !account && importing.length}
+      <p>Importing mail…</p>
+    {:else}
+      <p class="truncate" title={account?.email}>{account ? `${account.name}, ${account.email}` : "All inboxes"}</p>
+    {/if}
+  </div>
 
   <div class="px-3 pb-2">
     <label
@@ -78,52 +98,64 @@
   </div>
 
   {#if list.length}
-    <!-- scroll-pt keeps a row focused with the arrow keys clear of the sticky date heading. -->
-    <div id="message-list" class="min-h-0 flex-1 scroll-pt-8 overflow-y-auto px-2 pb-2">
-      {#each groups as g (g.label)}
-        <h3 class="sticky top-0 z-1 bg-panel px-3 pt-3 pb-1 text-caption font-medium text-ink-muted">{g.label}</h3>
-        <ul aria-label={g.label}>
-          {#each g.threads as t (t.id)}
-            {@const selected = ui.threadId === t.id}
-            <li>
-              <button
-                id="thread-{t.id}"
-                class="relative flex w-full flex-col gap-0.5 rounded-lg py-2.5 pr-3 pl-5 text-left transition-colors duration-100 {selected
-                  ? 'bg-selected focus-visible:outline-none'
-                  : 'hover:bg-ink/5 active:bg-ink/10'}"
-                aria-current={selected ? "true" : undefined}
-                onclick={() => openThread(t.id)}
-                use:contextmenu={() => threadMenu(t, true)}
-              >
-                {#if t.unread}
-                  <span class="absolute top-[1.0625rem] left-2 size-1.5 rounded-full bg-accent"></span>
-                  <span class="sr-only">Unread.</span>
+    <div id="message-list" class="min-h-0 flex-1 overflow-y-auto pr-2 pb-2">
+      {#each groups as g (g.key)}
+        <!-- A day (or month) in the gutter, pinned while its conversations scroll past; the hairline is the spine. -->
+        <section aria-label={g.name} class="grid grid-cols-[5.5rem_minmax(0,1fr)]">
+          <div aria-hidden="true">
+            <p class="sticky top-0 pt-2 pr-3 text-right">
+              <span class="block text-day tabular-nums">{g.big}</span>
+              {#if g.small}<span class="block text-caption text-ink-muted">{g.small}</span>{/if}
+            </p>
+          </div>
+          <ul class="border-l border-line pt-1 pb-3 pl-1.5">
+            {#each g.threads as t (t.id)}
+              {@const selected = ui.threadId === t.id}
+              <li class="relative">
+                {#if ui.accountId === "all"}
+                  <!-- Whose mail: a tick in the account's color, on the spine. -->
+                  <span class="absolute top-3 -left-2 h-4 w-0.75 rounded-full" style:background={accountColor(t.accountId)}
+                  ></span>
                 {/if}
-                <span class="flex items-center gap-2">
-                  <span class="min-w-0 flex-1 truncate {t.unread ? 'font-semibold' : 'font-medium'}">
-                    {t.participants.map((p) => p.name).join(", ")}
+                <button
+                  id="thread-{t.id}"
+                  class="relative flex w-full flex-col gap-0.5 rounded-lg py-2.5 pr-3 pl-5 text-left transition-colors duration-100 {selected
+                    ? 'bg-selected focus-visible:outline-none'
+                    : 'hover:bg-ink/5 active:bg-ink/10'}"
+                  aria-current={selected ? "true" : undefined}
+                  onclick={() => openThread(t.id)}
+                  use:contextmenu={() => threadMenu(t, true)}
+                >
+                  {#if t.unread}
+                    <span class="absolute top-[1.0625rem] left-2 size-1.5 rounded-full bg-accent"></span>
+                    <span class="sr-only">Unread.</span>
+                  {/if}
+                  <span class="flex items-center gap-2">
+                    <span class="min-w-0 flex-1 truncate {t.unread ? 'font-semibold' : 'font-medium'}">
+                      {t.participants.map((p) => p.name).join(", ")}
+                    </span>
+                    <!-- The gutter already says which day: rows in a day give the time, rows in a month the date. -->
+                    <time datetime={t.lastDate} class="shrink-0 text-caption text-ink-muted"
+                      >{g.day ? formatTime(t.lastDate) : formatDate(t.lastDate)}</time
+                    >
                   </span>
-                  {#if ui.accountId === "all"}
-                    <span class="size-2 shrink-0 rounded-full" style:background={accountColor(t.accountId)}></span>
-                  {/if}
-                  <time datetime={t.lastDate} class="shrink-0 text-caption text-ink-muted">{formatDate(t.lastDate)}</time>
-                </span>
-                <span class="flex items-center gap-1.5">
-                  <span class="min-w-0 flex-1 truncate">{t.subject}</span>
-                  {#if t.hasAttachments}
-                    <Icon icon={Attachment01Icon} size={13} class="shrink-0 text-ink-muted" />
-                    <span class="sr-only">Has attachments.</span>
-                  {/if}
-                  {#if t.starred}
-                    <Icon icon={StarIcon} size={13} class="shrink-0 fill-accent text-accent" />
-                    <span class="sr-only">Starred.</span>
-                  {/if}
-                </span>
-                <span class="line-clamp-2 text-ink-muted">{t.snippet}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
+                  <span class="flex items-center gap-1.5">
+                    <span class="min-w-0 flex-1 truncate">{t.subject}</span>
+                    {#if t.hasAttachments}
+                      <Icon icon={Attachment01Icon} size={13} class="shrink-0 text-ink-muted" />
+                      <span class="sr-only">Has attachments.</span>
+                    {/if}
+                    {#if t.starred}
+                      <Icon icon={StarIcon} size={13} class="shrink-0 fill-accent text-accent" />
+                      <span class="sr-only">Starred.</span>
+                    {/if}
+                  </span>
+                  <span class="line-clamp-2 text-ink-muted">{t.snippet}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </section>
       {/each}
     </div>
   {:else if data.accounts.length === 0}

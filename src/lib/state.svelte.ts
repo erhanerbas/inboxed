@@ -11,15 +11,6 @@ export const data = $state({
   thread: null as Thread | null, // the open conversation, with its messages
 });
 
-const SIDEBAR_KEY = "inboxed.sidebarCollapsed";
-function storedFlag(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === "1";
-  } catch {
-    return false; // no storage (tests, private contexts): fall back to the default
-  }
-}
-
 /** What the user is looking at. */
 export const ui = $state({
   accountId: "all", // "all" = unified view across accounts
@@ -33,7 +24,6 @@ export const ui = $state({
   newMail: [] as NewMail[], // arrived since you last looked, newest first: the banner shows it
   forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
   addingAccount: false,
-  sidebarCollapsed: storedFlag(SIDEBAR_KEY),
   error: "", // shown by the status bar in +page.svelte
   removingAccount: null as string | null, // the account the remove-account confirmation is asking about
 });
@@ -205,15 +195,6 @@ const inboxOf = (accountId: string) =>
 export function selectMailbox(key: string) {
   ui.mailboxKey = key;
   ui.threadId = null;
-}
-
-export function toggleSidebar() {
-  ui.sidebarCollapsed = !ui.sidebarCollapsed;
-  try {
-    localStorage.setItem(SIDEBAR_KEY, ui.sidebarCollapsed ? "1" : "0");
-  } catch {
-    // Not persisted; the toggle still works for this session.
-  }
 }
 
 // Flips the flags here first so the unread dot and the star respond instantly, then saves and reloads. If saving
