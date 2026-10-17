@@ -115,8 +115,9 @@
   .sidebar-material {
     background: var(--color-sidebar);
   }
+  /* A light tint over the native frosted material, so what's behind the window shows through the rail. */
   [data-platform="mac"] .sidebar-material {
-    background: color-mix(in srgb, var(--color-sidebar) 55%, transparent);
+    background: color-mix(in srgb, var(--color-sidebar) 30%, transparent);
   }
   @media (prefers-reduced-transparency: reduce) {
     [data-platform="mac"] .sidebar-material {
