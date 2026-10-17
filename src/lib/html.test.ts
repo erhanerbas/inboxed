@@ -31,6 +31,16 @@ describe("frameDoc", () => {
     expect(doc).toContain("color-scheme: light");
   });
 
+  it("sets every text in the reader's font, code aside, and lets only the app serve it", () => {
+    const font = { family: '"Geist Variable", sans-serif', css: "@font-face { font-family: 'Geist Variable'; }" };
+    const doc = frameDoc('<p style="font-family: Arial">Hi</p><pre>code</pre>', false, false, font);
+    expect(doc).toContain("@font-face { font-family: 'Geist Variable'; }");
+    expect(doc).toMatch(/@layer ib-font \{ body, body :not\(pre, pre \*, code, kbd, samp, tt\) \{ font-family: "Geist Variable", sans-serif !important; \} \}/);
+    expect(csp(doc)).toMatch(/font-src data: 'self'/);
+    expect(csp(doc)).not.toContain("https:");
+    expect(csp(frameDoc("<p>Hi</p>", false))).not.toContain("'self'");
+  });
+
   it("keeps stylesheet links once remote content is allowed", () => {
     expect(frameDoc('<link rel="stylesheet" href="https://x.example/a.css">', true)).toContain("<link");
   });

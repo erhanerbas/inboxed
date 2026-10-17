@@ -95,6 +95,19 @@
   ::selection {
     background: color-mix(in srgb, var(--color-accent) 35%, transparent);
   }
+  /* Thin scrollbars everywhere (the mail frame has its own copy): a 6px thumb on no track. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--color-ink) 20%, transparent);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
   /* macOS: the window is transparent so the native sidebar vibrancy shows through. */
   [data-platform="mac"] body {
     background: transparent;
@@ -155,6 +168,10 @@
     @apply h-8 rounded-lg border border-line px-4 font-medium text-ink transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10;
   }
   /* Destructive actions only. */
+  /* Small controls that sit beside text: Load images, Original colors. */
+  .pill-btn {
+    @apply h-6 shrink-0 rounded-full border border-line px-2.5 text-caption text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10 aria-pressed:bg-raised aria-pressed:text-ink;
+  }
   .btn-danger {
     @apply h-8 rounded-lg bg-danger px-4 font-semibold text-on-danger transition-transform duration-100 active:scale-[0.97];
   }

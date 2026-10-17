@@ -4,6 +4,7 @@
   import NewMailBanner from "$lib/components/NewMailBanner.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
   import RemoveAccount from "$lib/components/RemoveAccount.svelte";
+  import Settings from "$lib/components/Settings.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ThreadView from "$lib/components/ThreadView.svelte";
   import { runShortcut } from "$lib/menus";
@@ -29,6 +30,11 @@
     if (mod && !e.shiftKey && !e.altKey && key === "n") {
       e.preventDefault();
       compose();
+      return;
+    }
+    if (mod && !e.shiftKey && !e.altKey && key === ",") {
+      e.preventDefault();
+      ui.settingsOpen = true;
       return;
     }
     // Thread commands (reply, archive, ⌫ …) never fire while typing or inside compose and dialogs.
@@ -71,6 +77,9 @@
 {/if}
 {#if ui.removingAccount}
   <RemoveAccount />
+{/if}
+{#if ui.settingsOpen}
+  <Settings />
 {/if}
 
 <!-- Always rendered, so screen readers announce the message when it appears. -->

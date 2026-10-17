@@ -24,6 +24,7 @@ export const ui = $state({
   newMail: [] as NewMail[], // arrived since you last looked, newest first: the banner shows it
   forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
   addingAccount: false,
+  settingsOpen: false,
   error: "", // shown by the status bar in +page.svelte
   removingAccount: null as string | null, // the account the remove-account confirmation is asking about
 });

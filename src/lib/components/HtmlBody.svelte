@@ -4,6 +4,7 @@
   import Icon from "./Icon.svelte";
   import { frameDoc, hasOwnDark, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "$lib/html";
   import { compose } from "$lib/state.svelte";
+  import { mailFont } from "$lib/settings.svelte";
   import { theme } from "$lib/theme.svelte";
 
   let { html, accountId }: { html: string; accountId: string } = $props();
@@ -17,7 +18,9 @@
   // Mail with a dark design of its own follows the window's appearance by itself: there's no original to go back to.
   const ownDark = $derived(hasOwnDark(html));
   const dark = $derived(theme.current === "dark" && (ownDark || !original));
-  const doc = $derived(frameDoc(html, remote, dark));
+  const doc = $derived(frameDoc(html, remote, dark, mailFont()));
+  const blocked = $derived(hasRemoteContent(html) && !remote);
+  const recolorable = $derived(theme.current === "dark" && !ownDark);
   let observer: ResizeObserver | undefined;
   let steps = 0;
   const MAX_HEIGHT = 30_000;
@@ -99,22 +102,17 @@
   }
 </script>
 
-{#if hasRemoteContent(html) && !remote}
-  <p class="mb-3 flex items-center justify-between gap-3 rounded-lg bg-raised py-1.5 pr-1.5 pl-3 text-caption text-ink-muted">
-    Remote images are blocked, so the sender can't see you opened this.
-    <button class="btn-secondary h-7 shrink-0 px-3 text-caption" onclick={() => (remote = true)}>Load images</button>
-  </p>
-{/if}
-{#if theme.current === "dark" && !ownDark}
-  <!-- Darkening is a guess about someone else's design: the original is one click away, above the message. -->
-  <div class="mb-2 flex justify-end">
-    <button
-      class="h-6 rounded-full border border-line px-3 text-caption text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10 aria-pressed:bg-raised aria-pressed:text-ink"
-      aria-pressed={original}
-      onclick={() => (original = !original)}
-    >
-      Original colors
-    </button>
+<!-- What can be changed about how this message shows, on one quiet line above it. -->
+{#if blocked || recolorable}
+  <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-caption text-ink-muted">
+    {#if blocked}
+      <span>Images are blocked, so the sender can't see you opened this.</span>
+      <button class="pill-btn" onclick={() => (remote = true)}>Load images</button>
+    {/if}
+    {#if recolorable}
+      <!-- Darkening is a guess about someone else's design: the original is one click away. -->
+      <button class="pill-btn ml-auto" aria-pressed={original} onclick={() => (original = !original)}>Original colors</button>
+    {/if}
   </div>
 {/if}
 <!-- allow-same-origin only: no scripts, forms, popups or navigation; the page can measure it and catch clicks. -->
@@ -124,7 +122,7 @@
   sandbox="allow-same-origin"
   srcdoc={doc}
   onload={loaded}
-  class="block w-full rounded-xl border border-line"
+  class="block w-full"
   style:background={dark ? "#121212" : "#fff"}
   style:height="{height}px"
 ></iframe>

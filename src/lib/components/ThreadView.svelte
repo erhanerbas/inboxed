@@ -19,6 +19,7 @@
   import Logo from "./Logo.svelte";
   import { formatDate, formatSize } from "$lib/format";
   import { splitQuoted, unquote } from "$lib/quote";
+  import { mailFont } from "$lib/settings.svelte";
   import type { Address, Message } from "$lib/types";
 
   // Grouped by what they do to the conversation: file it away, or answer it. Labels match the right-click menu.
@@ -62,6 +63,13 @@
     await tick();
     reveal(document.getElementById(`message-${m.id}`));
   }
+  // A long conversation shows its first message, how many are folded, and the last two (the newest open).
+  let unfolded = $state(false);
+  const rows = $derived.by(() => {
+    const all = thread?.messages ?? [];
+    if (unfolded || all.length <= 4) return all.map((m) => ({ m, folded: 0 }));
+    return [{ m: all[0], folded: 0 }, { m: null, folded: all.length - 3 }, ...all.slice(-2).map((m) => ({ m, folded: 0 }))];
+  });
   const names = (list: Address[]) => list.map((a) => a.name).join(", ");
   const preview = (m: Message) => (splitQuoted(m.body).text || m.body).replace(/\s+/g, " ");
 </script>
@@ -97,87 +105,122 @@
           {thread.messages.length === 1 ? "message" : "messages"}
         </p>
 
-        <!-- One flat list: hairlines separate messages, space separates the parts of one message. -->
+        <!-- One flat list: hairlines separate messages. Everything a message holds starts where its sender's name does,
+             past the avatar column (pl-11), so the eye follows one edge down the conversation. -->
         <ol bind:this={messages} class="mt-6 divide-y divide-line border-t border-line">
-          {#each thread.messages as m, i (m.id)}
-            {@const latest = i === thread.messages.length - 1}
-            {@const open = latest || expanded.has(m.id)}
-            {@const body = splitQuoted(m.body)}
-            <li id="message-{m.id}" class="scroll-mt-3 {open ? 'pt-4 pb-6' : 'py-1'}">
-              <h2>
-                {#if latest}
-                  {@render header(m)}
-                {:else}
-                  <button
-                    class="-mx-3 block w-[calc(100%+1.5rem)] rounded-lg px-3 text-left transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10 {open
-                      ? 'py-1'
-                      : 'py-2'}"
-                    aria-expanded={open}
-                    onclick={() => expand(m)}
-                  >
-                    {#if open}
-                      {@render header(m)}
-                    {:else}
-                      <span class="flex items-center gap-3">
-                        <span class="grid w-8 shrink-0 place-items-center"><Avatar name={m.from.name} size={24} /></span>
-                        <span class="max-w-[40%] shrink-0 truncate font-semibold">{m.from.name}</span>
-                        <span class="min-w-0 flex-1 truncate text-ink-muted">{preview(m)}</span>
-                        <time datetime={m.date} class="shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
-                      </span>
-                    {/if}
-                  </button>
-                {/if}
-              </h2>
-
-              {#if open}
-                <div class="selectable mt-4 text-read wrap-anywhere">
-                  {#if m.html}
-                    <HtmlBody html={m.html} accountId={thread.accountId} />
-                  {:else}
-                  {#if body.text}
-                    <p class="max-w-[68ch] whitespace-pre-wrap">{body.text}</p>
-                  {/if}
-                  {#if body.quoted && body.text}
-                    <button
-                      class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
-                      aria-label="Show quoted text"
-                      aria-expanded={quotesShown.has(m.id)}
-                      onclick={() => toggle(quotesShown, m.id)}
+          {#each rows as { m, folded } (m?.id ?? "folded")}
+            {#if !m}
+              <li>
+                <button
+                  class="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-lg px-3 py-2 text-left text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10"
+                  onclick={() => (unfolded = true)}
+                >
+                  <span class="grid w-8 shrink-0 place-items-center">
+                    <span class="grid h-5 min-w-6 place-items-center rounded-full border border-line px-1.5 text-caption tabular-nums"
+                      >{folded}</span
                     >
-                      <Icon icon={MoreHorizontalIcon} size={14} />
+                  </span>
+                  {folded === 1 ? "1 more message" : `${folded} more messages`}
+                </button>
+              </li>
+            {:else}
+              {@const latest = m.id === thread.messages.at(-1)?.id}
+              {@const open = latest || expanded.has(m.id)}
+              {@const body = splitQuoted(m.body)}
+              <li id="message-{m.id}" class="scroll-mt-3 {open ? 'pt-4 pb-6' : 'py-1'}">
+                <h2>
+                  {#if latest}
+                    {@render header(m)}
+                  {:else}
+                    <button
+                      class="-mx-3 block w-[calc(100%+1.5rem)] rounded-lg px-3 text-left transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10 {open
+                        ? 'py-1'
+                        : 'py-2'}"
+                      aria-expanded={open}
+                      onclick={() => expand(m)}
+                    >
+                      {#if open}
+                        {@render header(m)}
+                      {:else}
+                        <span class="flex items-center gap-3">
+                          <span class="grid w-8 shrink-0 place-items-center"><Avatar name={m.from.name} size={24} /></span>
+                          <span class="max-w-[40%] shrink-0 truncate font-semibold">{m.from.name}</span>
+                          <span class="min-w-0 flex-1 truncate text-ink-muted">{preview(m)}</span>
+                          <time datetime={m.date} class="shrink-0 text-caption text-ink-muted">{formatDate(m.date)}</time>
+                        </span>
+                      {/if}
                     </button>
                   {/if}
-                  {#if body.quoted && (!body.text || quotesShown.has(m.id))}
-                    <p class="mt-3 max-w-[68ch] border-l-2 border-line pl-3 whitespace-pre-wrap text-ink-muted">
-                      {unquote(body.quoted)}
-                    </p>
-                  {/if}
-                  {/if}
-                  {#if m.attachments.some((a) => !a.inline)}
-                    <ul class="mt-4 flex flex-wrap gap-2" aria-label="Attachments">
-                      {#each m.attachments as a, i (i)}
-                        {#if !a.inline}
-                          <li>
-                            <button
-                              class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10"
-                              title="Save to Downloads and show it"
-                              onclick={() => openAttachment(m.id, i)}
-                            >
-                              <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
-                              {a.name}
-                              <span class="text-ink-muted">{formatSize(a.size)}</span>
-                            </button>
-                          </li>
+                </h2>
+
+                {#if open}
+                  <div class="selectable mt-4 pl-11 text-read wrap-anywhere">
+                    {#if m.html}
+                      <HtmlBody html={m.html} accountId={thread.accountId} />
+                    {:else}
+                      {#if body.text}
+                        <p class="max-w-[68ch] whitespace-pre-wrap" style:font-family={mailFont().family}>{body.text}</p>
+                      {/if}
+                      {#if body.quoted && body.text}
+                        <button
+                          class="mt-3 grid h-6 w-9 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
+                          aria-label="Show quoted text"
+                          aria-expanded={quotesShown.has(m.id)}
+                          onclick={() => toggle(quotesShown, m.id)}
+                        >
+                          <Icon icon={MoreHorizontalIcon} size={14} />
+                        </button>
+                      {/if}
+                      {#if body.quoted && (!body.text || quotesShown.has(m.id))}
+                        <p
+                          class="mt-3 max-w-[68ch] border-l-2 border-line pl-3 whitespace-pre-wrap text-ink-muted"
+                          style:font-family={mailFont().family}
+                        >
+                          {unquote(body.quoted)}
+                        </p>
+                      {/if}
+                    {/if}
+                    {#if m.attachments.some((a) => !a.inline)}
+                      <ul class="mt-4 flex flex-wrap gap-2" aria-label="Attachments">
+                        {#each m.attachments as a, i (i)}
+                          {#if !a.inline}
+                            <li>
+                              <button
+                                class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10"
+                                title="Save to Downloads and show it"
+                                onclick={() => openAttachment(m.id, i)}
+                              >
+                                <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
+                                {a.name}
+                                <span class="text-ink-muted">{formatSize(a.size)}</span>
+                              </button>
+                            </li>
+                          {/if}
+                        {/each}
+                      </ul>
+                    {/if}
+                    {#if m.draft}
+                      <button class="btn-secondary mt-4" onclick={() => editDraft(m)}>Edit draft</button>
+                    {:else if latest}
+                      <!-- The conversation ends where you answer it. -->
+                      <div class="mt-6 flex flex-wrap gap-2">
+                        <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id)}>
+                          <Icon icon={MailReply01Icon} size={15} /> Reply
+                        </button>
+                        {#if m.to.length + m.cc.length > 1}
+                          <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id, true)}>
+                            <Icon icon={MailReplyAll01Icon} size={15} /> Reply All
+                          </button>
                         {/if}
-                      {/each}
-                    </ul>
-                  {/if}
-                  {#if m.draft}
-                    <button class="btn-secondary mt-4" onclick={() => editDraft(m)}>Edit draft</button>
-                  {/if}
-                </div>
-              {/if}
-            </li>
+                        <button class="btn-secondary flex items-center gap-1.5" onclick={() => forward(thread.id)}>
+                          <Icon icon={MailSend01Icon} size={15} /> Forward
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </li>
+            {/if}
           {/each}
         </ol>
       </div>

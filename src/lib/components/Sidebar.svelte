@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Layers01Icon, Moon02Icon, PlusSignIcon, Sun01Icon } from "@hugeicons/core-free-icons";
+  import { Layers01Icon, Moon02Icon, PlusSignIcon, Settings01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import { contextmenu } from "$lib/contextmenu";
@@ -11,6 +11,7 @@
   // Inbox of a rail entry, in the accountId/key convention `ui` uses.
   const inboxKey = (accountId: string) =>
     accountId === "all" ? "inbox" : (data.mailboxes.find((m) => m.accountId === accountId && m.role === "inbox")?.id ?? "");
+  const isMac = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
   const inboxUnread = (accountId: string) =>
     visibleMailboxes(data.mailboxes, accountId).find((m) => m.id === inboxKey(accountId))?.unread ?? 0;
 </script>
@@ -57,6 +58,9 @@
     onclick={toggleTheme}
   >
     <Icon icon={theme.current === "dark" ? Sun01Icon : Moon02Icon} size={18} />
+  </button>
+  <button class="rail-btn" aria-label="Settings" title="Settings ({isMac ? '⌘,' : 'Ctrl+,'})" onclick={() => (ui.settingsOpen = true)}>
+    <Icon icon={Settings01Icon} size={18} />
   </button>
   <button class="rail-btn" aria-label="Add account" title="Add account" onclick={() => (ui.addingAccount = true)}>
     <Icon icon={PlusSignIcon} size={18} />

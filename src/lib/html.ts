@@ -16,8 +16,11 @@ export const QUOTE_SELECTOR = [
 
 // Mail is designed for white paper: it gets a light page of its own.
 const BASE = `:root { color-scheme: light; }
-body { margin: 0; padding: 20px 24px; display: flow-root; background: #fff; color: #1c1b1b; overflow-wrap: anywhere;
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { margin: 0; padding: 4px 0; display: flow-root; background: #fff; color: #1c1b1b; overflow-wrap: anywhere;
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: rgb(0 0 0 / 0.2); border-radius: 3px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 img { max-width: 100%; height: auto; }
 pre { white-space: pre-wrap; }
 :root:not(.ib-show-quotes) :is(${QUOTE_SELECTOR}) { display: none !important; }`;
@@ -45,18 +48,26 @@ const INERT_LINK = /<(\/?)(link)\b/gi;
 // Protocol-relative URLs would resolve against the app (tauri://…) inside srcdoc: give them https.
 const PROTOCOL_RELATIVE = /(\b(?:src|href|srcset|poster|background)\s*=\s*["']?\s*|url\(\s*["']?\s*)\/\/(?=[\w.-])/gi;
 
+/** The reader's mail font: every element in it, code aside, with the font's own @font-face rules. In a layer, so it
+ *  beats the mail's own !important rules whatever their specificity (layered important wins over unlayered). */
+const fontRules = (font: { family: string; css: string }) =>
+  `${font.css}\n@layer ib-font { body, body :not(pre, pre *, code, kbd, samp, tt) { font-family: ${font.family} !important; } }`;
+
 /** The frame's document: the policy first, then the message. remote allows images, styles and fonts from the web;
- *  dark shows it dark: in its own dark design when it has one, else inverted. */
-export function frameDoc(html: string, remote: boolean, dark = false): string {
+ *  dark shows it dark: in its own dark design when it has one, else inverted; font sets every text in the reader's
+ *  mail font (its files come from the app, so the policy allows the app's own origin for fonts). */
+export function frameDoc(html: string, remote: boolean, dark = false, font?: { family: string; css: string }): string {
   const web = remote ? " https: http:" : "";
+  const origin = globalThis.location?.origin;
+  const app = font?.css ? ` 'self'${origin && origin !== "null" ? ` ${origin}` : ""}` : "";
   const policy =
     `default-src 'none'; script-src 'none'; style-src 'unsafe-inline'${web}; ` +
-    `img-src data:${web}; font-src data:${web}; media-src 'none'; base-uri 'none'; form-action 'none'`;
+    `img-src data:${web}; font-src data:${app}${web}; media-src 'none'; base-uri 'none'; form-action 'none'`;
   let body = html.replace(INERT_ALWAYS, "<$1x-$2").replace(PROTOCOL_RELATIVE, "$1https://");
   if (!remote) body = body.replace(INERT_LINK, "<$1x-$2");
   return (
     `<!doctype html><html><head><meta charset="utf-8">` +
-    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}${dark ? (hasOwnDark(html) ? NATIVE_DARK : DARK) : ""}</style></head>` +
+    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}${dark ? (hasOwnDark(html) ? NATIVE_DARK : DARK) : ""}${font ? fontRules(font) : ""}</style></head>` +
     `<body>${body}</body></html>`
   );
 }
