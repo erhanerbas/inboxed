@@ -29,7 +29,7 @@
           "effects": [
             "sidebar"
           ],
-          "state": "followsWindowActiveState"
+          "state": "active"
         }
       }
     ],
