@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"html"
 	"io"
+	"mime"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,8 +18,8 @@ import (
 	"github.com/emersion/go-message/mail"
 )
 
-// parseMessage keeps what Inboxed shows of a raw message: headers, plain text (or HTML reduced to text) and
-// attachment names and sizes. fallbackDate (the server's INTERNALDATE) stands in for a missing or broken Date.
+// parseMessage keeps what Inboxed shows of a raw message: headers, every reference id, plain text (or HTML reduced to
+// text), the HTML itself, and attachments with their content. fallbackDate (the server's INTERNALDATE) stands in for a missing or broken Date.
 func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 	// message.Read (unlike mail.CreateReader) hands back a usable entity for unknown charsets and transfer encodings.
 	e, err := message.Read(bytes.NewReader(raw))
@@ -36,6 +38,11 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 	refs, _ := h.MsgIDList("References")
 	replyTo, _ := h.MsgIDList("In-Reply-To")
 	p.Root = cmp.Or(first(refs), first(replyTo), p.HeaderID)
+	for _, id := range append(refs, replyTo...) {
+		if id != p.HeaderID && !slices.Contains(p.Refs, id) {
+			p.Refs = append(p.Refs, id)
+		}
+	}
 	if from := addresses(h, "From"); len(from) > 0 {
 		p.From = from[0]
 	}
@@ -50,28 +57,40 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 		if err != nil && !readable(err) {
 			break // io.EOF, or a broken part: keep what was read so far
 		}
+		var name, ct string
+		var params map[string]string
 		switch ph := part.Header.(type) {
 		case *mail.InlineHeader:
-			ct, params, _ := ph.ContentType()
-			if !strings.HasPrefix(ct, "text/") {
-				if name := params["name"]; name != "" { // an inline image or file sent without "attachment"
-					n, _ := io.Copy(io.Discard, part.Body)
-					p.Attachments = append(p.Attachments, Attachment{Name: name, Size: n})
+			ct, params, _ = ph.ContentType()
+			name = params["name"]
+			if (ct == "text/plain" || ct == "text/html") && name == "" {
+				b, _ := io.ReadAll(part.Body)
+				if ct == "text/plain" {
+					plain = append(plain, string(b))
+				} else {
+					htmlParts = append(htmlParts, string(b))
 				}
 				continue
 			}
-			b, _ := io.ReadAll(part.Body)
-			switch ct {
-			case "text/plain":
-				plain = append(plain, string(b))
-			case "text/html":
-				htmlParts = append(htmlParts, string(b))
-			}
 		case *mail.AttachmentHeader:
-			name, _ := ph.Filename()
-			n, _ := io.Copy(io.Discard, part.Body)
-			p.Attachments = append(p.Attachments, Attachment{Name: cmp.Or(name, "attachment"), Size: n})
+			ct, _, _ = ph.ContentType()
+			name, _ = ph.Filename()
+		default:
+			continue
 		}
+		// An attachment, or an inline file or image (named, or referenced from the HTML by Content-ID).
+		cid := strings.Trim(part.Header.Get("Content-Id"), "<> ")
+		if name == "" && cid == "" && strings.HasPrefix(ct, "text/") {
+			continue // an unnamed text part that's neither plain nor HTML (calendar data, say)
+		}
+		data, _ := io.ReadAll(part.Body)
+		p.Attachments = append(p.Attachments, Attachment{Name: cmp.Or(name, cid, "attachment"+extension(ct)), Size: int64(len(data)),
+			Type: cmp.Or(ct, "application/octet-stream"), CID: cid})
+		p.Files = append(p.Files, data)
+	}
+	p.HTML = strings.Join(htmlParts, "\n")
+	for i, a := range p.Attachments {
+		p.Attachments[i].Inline = a.CID != "" && strings.Contains(p.HTML, "cid:"+a.CID)
 	}
 	switch {
 	case len(plain) > 0:
@@ -112,7 +131,7 @@ var (
 	blankRuns = regexp.MustCompile(`\n{3,}`)
 )
 
-// htmlToText stands in for HTML-only mail until Phase 6 renders HTML in a sandbox: words and paragraph breaks only.
+// htmlToText reduces HTML-only mail to words and paragraph breaks, for snippets, search and the collapsed preview.
 func htmlToText(s string) string {
 	s = htmlDrop.ReplaceAllString(s, "")
 	s = htmlBreak.ReplaceAllString(s, "\n")
@@ -122,4 +141,18 @@ func htmlToText(s string) string {
 		lines[i] = strings.Join(strings.Fields(line), " ")
 	}
 	return strings.TrimSpace(blankRuns.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
+}
+
+// extension names an unnamed part's file by its type: a bounced or forwarded message (message/rfc822) opens as .eml.
+func extension(contentType string) string {
+	switch contentType {
+	case "message/rfc822":
+		return ".eml"
+	case "message/delivery-status", "message/disposition-notification":
+		return ".txt"
+	}
+	if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+		return exts[0]
+	}
+	return ""
 }

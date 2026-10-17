@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -9,22 +10,60 @@ import (
 
 var keepAlive = 25 * time.Second // a comment line now and then keeps idle connections from being cut
 
-// Events tells every connected UI that something changed. Events carry no data: the UI reloads what it shows.
+// Events tells every connected UI that something changed, and what new mail arrived. Change events carry no data
+// (the UI reloads what it shows) and coalesce; mail events carry their messages and are queued.
 type Events struct {
-	mu   sync.Mutex
-	subs map[chan struct{}]bool
+	mu      sync.Mutex
+	subs    map[*subscriber]bool
+	waiting [][]byte // mail found while no UI was listening (launch): the first one to connect gets it
 }
 
-func NewEvents() *Events { return &Events{subs: map[chan struct{}]bool{}} }
+type subscriber struct {
+	change chan struct{} // at most one unsent change: a burst is one reload
+	mail   chan []byte   // a few batches of new mail; the oldest gives way when a UI falls behind
+}
 
-// Publish never blocks: each subscriber holds at most one unsent event, so a burst becomes one reload.
+func NewEvents() *Events { return &Events{subs: map[*subscriber]bool{}} }
+
+// Publish never blocks.
 func (e *Events) Publish() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for ch := range e.subs {
+	for sub := range e.subs {
 		select {
-		case ch <- struct{}{}:
+		case sub.change <- struct{}{}:
 		default:
+		}
+	}
+}
+
+// Mail sends a batch of new mail to every UI. It never blocks.
+func (e *Events) Mail(batch []NewMail) {
+	data, err := json.Marshal(batch)
+	if err != nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.subs) == 0 {
+		e.waiting = append(e.waiting, data)
+		if len(e.waiting) > 16 {
+			e.waiting = e.waiting[1:]
+		}
+		return
+	}
+	for sub := range e.subs {
+		for {
+			select {
+			case sub.mail <- data:
+			default:
+				select {
+				case <-sub.mail: // full: drop the oldest batch and try again
+				default:
+				}
+				continue
+			}
+			break
 		}
 	}
 }
@@ -36,13 +75,17 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	ch := make(chan struct{}, 1)
+	sub := &subscriber{change: make(chan struct{}, 1), mail: make(chan []byte, 16)}
 	e.mu.Lock()
-	e.subs[ch] = true
+	e.subs[sub] = true
+	for _, data := range e.waiting {
+		sub.mail <- data // fits: at most 16 wait, and the queue is new
+	}
+	e.waiting = nil
 	e.mu.Unlock()
 	defer func() {
 		e.mu.Lock()
-		delete(e.subs, ch)
+		delete(e.subs, sub)
 		e.mu.Unlock()
 	}()
 
@@ -56,8 +99,10 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-ch:
+		case <-sub.change:
 			fmt.Fprint(w, "event: change\ndata: {}\n\n")
+		case data := <-sub.mail:
+			fmt.Fprintf(w, "event: mail\ndata: %s\n\n", data)
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 		}

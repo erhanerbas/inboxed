@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Cancel01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+  import { Attachment01Icon, Cancel01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+  import { formatSize } from "$lib/format";
   import Icon from "./Icon.svelte";
   import { rise } from "$lib/motion";
   import { closeCompose, discardDraft, sendDraft, senders, ui } from "$lib/state.svelte";
@@ -51,7 +52,7 @@
 
 <form
   bind:this={form}
-  transition:rise
+  transition:rise|global
   aria-label="New message"
   onsubmit={(e) => e.preventDefault()}
   class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-[0_24px_60px_rgb(0_0_0/0.5)]"
@@ -88,6 +89,17 @@
     class="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-read outline-none"
   ></textarea>
 
+  {#if ui.draft.forwardOf && ui.forwarding.length}
+    <ul class="flex shrink-0 flex-wrap gap-2 px-4 pb-3" aria-label="Attachments from the original">
+      {#each ui.forwarding.filter((a) => !a.inline) as a, i (i)}
+        <li class="flex items-center gap-1.5 rounded-lg bg-panel px-2.5 py-1.5 text-caption">
+          <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
+          {a.name}
+          <span class="text-ink-muted">{formatSize(a.size)}</span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   {#if ui.composeError}
     <p role="alert" class="mx-3 mb-2 rounded-lg bg-panel px-3 py-2 wrap-anywhere">{ui.composeError}</p>
   {/if}

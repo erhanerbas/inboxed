@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { NewMail } from "./types";
 
 type Engine = { url: string; token: string };
 
@@ -41,24 +42,24 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const send = (path: string, method: string, body: unknown) =>
   api<void>(path, { method, body: JSON.stringify(body) });
 
-/** Splits a Server-Sent Events buffer into the names of its complete events and the unfinished rest. */
-export function parseEvents(buffer: string): { names: string[]; rest: string } {
+/** Splits a Server-Sent Events buffer into its complete events (name and data) and the unfinished rest. */
+export function parseEvents(buffer: string): { events: { name: string; data: string }[]; rest: string } {
   const blocks = buffer.replace(/\r\n?/g, "\n").split("\n\n");
   const rest = blocks.pop() ?? "";
-  const names = blocks.flatMap((block) =>
-    block
-      .split("\n")
-      .filter((line) => line.startsWith("event: "))
-      .map((line) => line.slice("event: ".length)),
-  );
-  return { names, rest };
+  const events = blocks.flatMap((block) => {
+    const lines = block.split("\n");
+    const name = lines.find((l) => l.startsWith("event: "))?.slice("event: ".length);
+    const data = lines.filter((l) => l.startsWith("data: ")).map((l) => l.slice("data: ".length)).join("\n");
+    return name ? [{ name, data }] : [];
+  });
+  return { events, rest };
 }
 
 /**
- * Follows the engine's change stream, calling onChange for every change event, until the stream ends or fails.
- * fetch rather than EventSource, because EventSource can't send the token (and it must never go in a URL).
+ * Follows the engine's event stream until it ends or fails: onChange for every change, onMail with each batch of
+ * new mail. fetch rather than EventSource, because EventSource can't send the token (and it must never go in a URL).
  */
-export async function follow(onChange: () => void): Promise<void> {
+export async function follow(onChange: () => void, onMail: (batch: NewMail[]) => void): Promise<void> {
   const { url, token } = await (engine ??= connect());
   const res = await fetch(url + "/events", { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok || !res.body) throw new EngineError(res.status, "The engine's event stream isn't available.");
@@ -69,6 +70,9 @@ export async function follow(onChange: () => void): Promise<void> {
     if (done) return;
     const parsed = parseEvents(buffer + value);
     buffer = parsed.rest;
-    if (parsed.names.includes("change")) onChange();
+    for (const e of parsed.events) {
+      if (e.name === "mail") onMail(JSON.parse(e.data));
+    }
+    if (parsed.events.some((e) => e.name === "change")) onChange();
   }
 }

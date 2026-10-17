@@ -26,8 +26,12 @@ type Address struct {
 }
 
 type Attachment struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Type   string `json:"type"`
+	CID    string `json:"cid,omitempty"`    // Content-ID, how the HTML refers to an inline image
+	Hash   string `json:"hash,omitempty"`   // the content's file under <data dir>/attachments
+	Inline bool   `json:"inline,omitempty"` // shown in the HTML, so not listed as an attachment
 }
 
 type Message struct {
@@ -40,7 +44,8 @@ type Message struct {
 	Body        string       `json:"body"`
 	Attachments []Attachment `json:"attachments"`
 	Subject     string       `json:"subject"`
-	Draft       bool         `json:"draft"` // in a Drafts folder: the compose panel can resume it
+	HTML        string       `json:"html,omitempty"` // shown in a sandboxed frame; inline images already data: URLs
+	Draft       bool         `json:"draft"`          // in a Drafts folder: the compose panel can resume it
 }
 
 // Thread is a conversation. Lists leave Messages empty (a ThreadSummary in TypeScript); GET /threads/{id} fills it.
@@ -81,4 +86,13 @@ type Progress struct {
 	Done  int    `json:"done"`
 	Total int    `json:"total"`
 	Error string `json:"error,omitempty"`
+}
+
+// NewMail is a message that just arrived in an inbox, for a notification.
+type NewMail struct {
+	AccountID string `json:"accountId"`
+	ThreadID  string `json:"threadId"`
+	From      string `json:"from"` // the sender's name, or address when there's none
+	Subject   string `json:"subject"`
+	Snippet   string `json:"snippet"`
 }

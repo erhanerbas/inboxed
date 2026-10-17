@@ -1,6 +1,7 @@
 import { api, EngineError, follow, send } from "./engine";
 import { addresses, forwardBody, replyQuote } from "./format";
-import type { Account, AccountSettings, Draft, Mailbox, Message, Thread, ThreadSummary } from "./types";
+import { deliver, setBadge, summarize } from "./notify";
+import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
 export const data = $state({
@@ -29,6 +30,8 @@ export const ui = $state({
   draft: { accountId: "", to: "", cc: "", subject: "", body: "" } as Draft,
   composeError: "", // why the compose panel couldn't send or save; shown in the panel
   composeKey: 0, // a new message re-mounts the panel (focus, state)
+  newMail: [] as NewMail[], // arrived since you last looked, newest first: the banner shows it
+  forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
   addingAccount: false,
   sidebarCollapsed: storedFlag(SIDEBAR_KEY),
   error: "", // shown by the status bar in +page.svelte
@@ -74,6 +77,7 @@ async function loadThread() {
 async function reload() {
   const [mailboxes] = await Promise.all([api<Mailbox[]>("/mailboxes"), loadList(), loadThread()]);
   data.mailboxes = mailboxes;
+  setBadge(mailboxes.filter((m) => m.role === "inbox").reduce((sum, m) => sum + m.unread, 0));
 }
 
 async function refreshAll() {
@@ -111,7 +115,7 @@ async function followChanges() {
   for (;;) {
     const opened = Date.now();
     try {
-      await follow(scheduleRefresh);
+      await follow(scheduleRefresh, newMail);
     } catch (err) {
       console.error(err);
     }
@@ -122,6 +126,28 @@ async function followChanges() {
     scheduleRefresh();
   }
 }
+
+// New mail: the banner always; a notification too when Inboxed isn't in front (in front, the banner is enough).
+function newMail(batch: NewMail[]) {
+  if (!batch.length) return;
+  const here = document.hasFocus();
+  // What you're reading right now needs no banner.
+  const waiting = here ? batch.filter((m) => m.threadId !== ui.threadId) : batch;
+  ui.newMail = [...waiting, ...ui.newMail].slice(0, 50);
+  if (!here) deliver(summarize(batch, data.accounts));
+}
+
+/** The banner's Open: the newest mail's conversation, in its account's inbox. The rest keeps waiting. */
+export function openNewMail() {
+  const [m] = ui.newMail;
+  if (!m) return Promise.resolve();
+  ui.newMail = ui.newMail.filter((x) => x.threadId !== m.threadId);
+  if (!data.accounts.some((a) => a.id === m.accountId)) return Promise.resolve(); // removed meanwhile
+  selectAccount(m.accountId);
+  return openThread(m.threadId);
+}
+
+export const dismissNewMail = () => (ui.newMail = []);
 
 /** First load; also the status bar's "Try again". Opens the live connection once. */
 export const start = () => {
@@ -144,6 +170,7 @@ export async function addAccount(settings: AccountSettings): Promise<string | nu
 
 export const removeAccount = (id: string) =>
   run(async () => {
+    ui.newMail = ui.newMail.filter((m) => m.accountId !== id);
     await api(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (ui.accountId === id) selectAccount("all");
     else if (data.thread?.accountId === id) ui.threadId = null; // its mail is gone, so its open thread closes too
@@ -197,6 +224,7 @@ async function setFlags(id: string, flags: { unread?: boolean; starred?: boolean
 
 export function openThread(id: string) {
   ui.threadId = id;
+  ui.newMail = ui.newMail.filter((m) => m.threadId !== id); // read now: no banner for it
   return run(async () => {
     await loadThread();
     if (data.thread?.id === id && data.thread.unread) await setFlags(id, { unread: false });
@@ -233,15 +261,20 @@ export const senders = () => data.accounts.filter((a) => a.provider === "imap");
 
 let pristine = ""; // the draft as the panel opened, so closing an untouched one saves nothing
 
-/** Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was. */
-export async function compose(draft: Partial<Draft> = {}) {
-  if (ui.composing && (await closeCompose())) return;
+/**
+ * Opens the panel on a new message. One already open is saved first; if it can't be, it stays as it was and this
+ * resolves to false.
+ */
+export async function compose(draft: Partial<Draft> = {}): Promise<boolean> {
+  if (ui.composing && (await closeCompose())) return false;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
   ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
   pristine = JSON.stringify(ui.draft);
+  ui.forwarding = [];
   ui.composeError = "";
-  ui.composeKey++;
+  ui.composeKey++; // always a fresh panel (focus, busy state), even when reopened while the last one closes
   ui.composing = true;
+  return true;
 }
 
 // Why the panel couldn't send or save, for the panel to show: the engine's words for a refusal, else what to do.
@@ -294,9 +327,10 @@ export function discardDraft() {
 
 /** Resumes a saved draft. It stays a reply when the conversation has other messages. */
 export async function editDraft(m: Message) {
+  // (The attachments shown are the draft's own, and only once its panel actually opened.)
   const thread = data.thread?.id === m.threadId ? data.thread : null;
   const reply = thread?.messages.some((x) => !x.draft && x.id !== m.id);
-  await compose({
+  const opened = await compose({
     accountId: thread?.accountId ?? m.id.split("/")[0],
     to: addresses(m.to),
     cc: addresses(m.cc),
@@ -304,7 +338,9 @@ export async function editDraft(m: Message) {
     body: m.body,
     threadId: reply ? m.threadId : undefined,
     draftId: m.id,
+    forwardOf: m.attachments.length ? m.id : undefined, // a saved forward keeps its attachments
   });
+  if (opened) ui.forwarding = m.attachments;
 }
 
 // The message a reply or forward is about: the newest that isn't a draft of mine.
@@ -333,5 +369,26 @@ export const forward = (id: string) =>
   run(async () => {
     const thread = await fullThread(id);
     const last = lastSent(thread);
-    await compose({ accountId: thread.accountId, subject: prefixed("Fwd:", thread.subject), body: forwardBody(last, thread.subject) });
+    const files = last.attachments.filter((a) => !a.inline); // signature logos stay behind with the HTML
+    const opened = await compose({
+      accountId: thread.accountId,
+      subject: prefixed("Fwd:", thread.subject),
+      body: forwardBody(last, thread.subject),
+      forwardOf: files.length ? last.id : undefined,
+    });
+    if (opened) ui.forwarding = files;
   });
+
+/** Saves an attachment to Downloads and shows it in the file manager (the engine does both). */
+export async function openAttachment(messageId: string, index: number) {
+  try {
+    await api(`/messages/${encodeURIComponent(messageId)}/attachments/${index}/open`, { method: "POST" });
+    ui.error = "";
+  } catch (err) {
+    console.error(err);
+    ui.error =
+      err instanceof EngineError && err.status === 404
+        ? "Inboxed doesn't have this attachment's content."
+        : "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.";
+  }
+}

@@ -30,9 +30,17 @@ export type Message = {
   cc: Address[];
   date: string; // ISO 8601, UTC
   body: string; // plain text; HTML rendering arrives in Phase 6
-  attachments: { name: string; size: number }[];
+  attachments: Attachment[];
   subject: string;
+  html?: string; // shown in a sandboxed frame (HtmlBody); body is its text reduction
   draft: boolean; // in a Drafts folder: "Edit draft" resumes it in the compose panel
+};
+
+export type Attachment = {
+  name: string;
+  size: number;
+  type?: string;
+  inline?: boolean; // shown inside the HTML, so not listed
 };
 
 /** A row in a list: everything but the messages. */
@@ -76,4 +84,8 @@ export type Draft = {
   body: string;
   threadId?: string;
   draftId?: string;
+  forwardOf?: string; // a message whose attachments go along
 };
+
+/** A message that just arrived in an inbox (the engine's "mail" event). */
+export type NewMail = { accountId: string; threadId: string; from: string; subject: string; snippet: string };

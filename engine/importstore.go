@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -18,6 +19,9 @@ type parsed struct {
 	Date        time.Time
 	Text        string
 	Attachments []Attachment
+	HTML        string   // the HTML part, as sent; rendered only in a sandboxed frame
+	Refs        []string // every Message-ID it refers to (References, then In-Reply-To), for threading
+	Files       [][]byte // attachment content, parallel to Attachments
 }
 
 // Incoming is one message as the importer found it on the server.
@@ -162,47 +166,155 @@ func (s *Store) KnownUIDs(mailboxID string) (map[uint32]bool, error) {
 // AddMessage files one imported message: it joins (or starts) its thread and records where it lives on the server.
 // The same message found in another folder (a Sent copy, a Gmail label) only gains another location.
 func (s *Store) AddMessage(in Incoming) error {
+	_, _, err := s.addMessage(in)
+	return err
+}
+
+// addMessage is AddMessage, also saying which thread the message is in and whether it was new here (rather than a
+// copy of one already stored, which only gains a location).
+func (s *Store) addMessage(in Incoming) (threadID string, created bool, err error) {
 	msgID := in.AccountID + "/" + in.HeaderID
-	threadID := in.AccountID + "/" + in.Root
+	for i := range in.Attachments { // outside the transaction: a file nobody refers to is cleaned at the next start
+		if i < len(in.Files) {
+			hash, err := s.saveFile(in.Files[i])
+			if err != nil {
+				return "", false, err
+			}
+			in.Attachments[i].Hash = hash
+		}
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return "", false, err
 	}
 	defer tx.Rollback()
 	err = tx.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&threadID)
 	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := tx.Exec(`INSERT INTO threads (id, account_id, subject, snippet, participants, last_date, has_attachments)
-			VALUES (?, ?, ?, '', '[]', '', 0) ON CONFLICT(id) DO NOTHING`, threadID, in.AccountID, in.Subject); err != nil {
-			return err
+		created = true
+		if threadID, err = joinThread(tx, in, msgID); err != nil {
+			return "", false, err
 		}
-		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject, html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			msgID, threadID, toJSON(in.From), toJSON(orEmpty(in.To)), toJSON(orEmpty(in.Cc)), in.Date.UTC().Format(isoDate),
-			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject); err != nil {
-			return err
+			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject, in.HTML); err != nil {
+			return "", false, err
+		}
+		for _, ref := range in.Refs {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO message_refs (ref, message_id) VALUES (?, ?)`, in.AccountID+"/"+ref, msgID); err != nil {
+				return "", false, err
+			}
 		}
 	} else if err != nil {
-		return err
+		return "", false, err
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id, seen, flagged) VALUES (?, ?, ?, ?, ?)`,
 		in.MailboxID, in.UID, msgID, in.Seen, in.Flagged); err != nil {
-		return err
+		return "", false, err
 	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, threadID, in.MailboxID); err != nil {
-		return err
+		return "", false, err
 	}
 	// A thread is unread while any copy of any of its messages is unseen, and starred while any is flagged.
 	if _, err := tx.Exec(`UPDATE threads SET unread = unread OR ?, starred = starred OR ? WHERE id = ?`,
 		!in.Seen, in.Flagged, threadID); err != nil {
-		return err
+		return "", false, err
 	}
 	if err := syncThread(tx, threadID); err != nil {
-		return err
+		return "", false, err
 	}
 	if err := refreshThread(tx, threadID); err != nil {
-		return err
+		return "", false, err
 	}
-	return tx.Commit()
+	return threadID, created, tx.Commit()
+}
+
+// joinThread picks the thread a new message belongs to, by every link it has to stored mail: its root's thread, the
+// threads of stored messages it refers to, and of stored messages that refer to it (a reply that arrived first). So a
+// message joins its conversation even when a mailing list trimmed its References or its original came later. When it
+// links several threads, they're one conversation: the others merge into the first. With no link, it starts
+// <account>/<root>.
+func joinThread(tx *sql.Tx, in Incoming, msgID string) (string, error) {
+	var linked []string
+	collect := func(query string, args ...any) error {
+		rows, err := tx.Query(query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			if !slices.Contains(linked, id) {
+				linked = append(linked, id)
+			}
+		}
+		return rows.Err()
+	}
+	root := in.AccountID + "/" + in.Root
+	if err := collect(`SELECT id FROM threads WHERE id = ?`, root); err != nil {
+		return "", err
+	}
+	if len(in.Refs) > 0 {
+		refs := make([]any, len(in.Refs))
+		for i, r := range in.Refs {
+			refs[i] = in.AccountID + "/" + r
+		}
+		in := `(?` + strings.Repeat(", ?", len(refs)-1) + `)`
+		if err := collect(`SELECT thread_id FROM messages WHERE id IN `+in, refs...); err != nil {
+			return "", err
+		}
+		// Siblings: stored messages answering the same (perhaps never imported) original.
+		if err := collect(`SELECT m.thread_id FROM message_refs r JOIN messages m ON m.id = r.message_id WHERE r.ref IN `+in, refs...); err != nil {
+			return "", err
+		}
+	}
+	if err := collect(`SELECT m.thread_id FROM message_refs r JOIN messages m ON m.id = r.message_id WHERE r.ref = ?`, msgID); err != nil {
+		return "", err
+	}
+	// A conversation with a change still on its way to the server isn't merged or joined: the change was made on
+	// the mail it had (a trash must not take other mail along). The links still count once it's sent.
+	var free []string
+	for _, id := range linked {
+		var pending bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pending_changes WHERE thread_id = ?)`, id).Scan(&pending); err != nil {
+			return "", err
+		}
+		if !pending {
+			free = append(free, id)
+		}
+	}
+	if len(free) == 0 {
+		if slices.Contains(linked, root) {
+			return root, nil // its own root conversation is busy; joining it is still right
+		}
+		_, err := tx.Exec(`INSERT INTO threads (id, account_id, subject, snippet, participants, last_date, has_attachments)
+			VALUES (?, ?, ?, '', '[]', '', 0)`, root, in.AccountID, in.Subject)
+		return root, err
+	}
+	return free[0], mergeThreads(tx, free[0], free[1:])
+}
+
+// mergeThreads moves threads' messages, folders and queued changes into one, then deletes them (and, by trigger,
+// their search rows). Flags combine; syncThread re-derives them from the server where it can.
+func mergeThreads(tx *sql.Tx, into string, from []string) error {
+	for _, f := range from {
+		for _, q := range []string{
+			`UPDATE messages SET thread_id = ?1 WHERE thread_id = ?2`,
+			`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) SELECT ?1, mailbox_id FROM thread_mailboxes WHERE thread_id = ?2`,
+			`UPDATE pending_changes SET thread_id = ?1 WHERE thread_id = ?2`,
+			`UPDATE threads SET unread = unread OR (SELECT unread FROM threads WHERE id = ?2),
+				starred = starred OR (SELECT starred FROM threads WHERE id = ?2) WHERE id = ?1`,
+			`DELETE FROM threads WHERE id = ?2`,
+		} {
+			if _, err := tx.Exec(q, into, f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // refreshThread recomputes a thread's summary fields and search row from its stored messages. Its subject is the

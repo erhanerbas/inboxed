@@ -2,6 +2,7 @@
   import { PencilEdit02Icon, SidebarLeft01Icon } from "@hugeicons/core-free-icons";
   import AddAccount from "$lib/components/AddAccount.svelte";
   import Compose from "$lib/components/Compose.svelte";
+  import NewMailBanner from "$lib/components/NewMailBanner.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
   import RemoveAccount from "$lib/components/RemoveAccount.svelte";
@@ -76,10 +77,13 @@
   </main>
 </div>
 
-{#if ui.composing}
-  <!-- A new message re-mounts the panel, so focus and its state start fresh. -->
-  {#key ui.composeKey}<Compose />{/key}
-{/if}
+<NewMailBanner />
+
+<!-- Every new message re-mounts the panel, so focus and its state start fresh; its transition is global, so it
+     animates although its block is the {#key}'s. -->
+{#key ui.composeKey}
+  {#if ui.composing}<Compose />{/if}
+{/key}
 {#if ui.addingAccount}
   <AddAccount />
 {/if}

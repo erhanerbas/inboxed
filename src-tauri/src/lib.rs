@@ -39,6 +39,7 @@ async fn engine(state: tauri::State<'_, EngineState>) -> Result<Engine, String> 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // The engine keeps its database in the app data folder (~/Library/Application Support/dev.inboxed.app).
