@@ -39,6 +39,7 @@ const DEFAULTS = {
   sound: true,
   dockBadge: true, // the inboxes' unread count on the Dock icon
   signatures: {} as Record<string, string>, // by account id
+  sidebarHidden: false, // the rail and the list folded away, leaving the mail
 };
 
 // Stored values only count when they're of the right kind: anything else is the default.
