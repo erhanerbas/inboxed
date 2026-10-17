@@ -43,7 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // The engine keeps its database in the app data folder (~/Library/Application Support/dev.inboxed.app).
-            // Debug builds get their own subfolder, so demo mail never lands next to a real install's accounts.
+            // Debug builds get their own subfolder, so accounts added while developing never mix with a real install's.
             let debug = cfg!(debug_assertions);
             let mut data_dir = app.path().app_data_dir()?;
             if debug {
@@ -55,7 +55,7 @@ pub fn run() {
                 .sidecar("inboxed-engine")?
                 .env("INBOXED_DATA_DIR", &data_dir)
                 // Development-only knobs, set explicitly so a variable exported in the shell can't reach the engine.
-                .env("INBOXED_SEED", if debug { "1" } else { "" }) // demo mail until Phase 3 adds real accounts
+                .env("INBOXED_SEED", "") // demo mail is for `npm run dev:engine` (the browser) only
                 .env("INBOXED_ORIGINS", if debug { "http://localhost:1420" } else { "" }) // the Vite dev server
                 .env("INBOXED_PORT", "")
                 .env("INBOXED_TOKEN", "")
