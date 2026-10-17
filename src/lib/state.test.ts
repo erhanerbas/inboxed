@@ -372,6 +372,33 @@ describe("new mail", () => {
     expect(s.ui.error).toBe("");
   });
 
+  it("Open goes to the newest and keeps the rest waiting", async () => {
+    engine.mail?.([{ ...batch[0], threadId: "t9" }]);
+    engine.mail?.(batch);
+    await s.openNewMail();
+    expect(s.ui.threadId).toBe("t1");
+    expect(s.ui.newMail.map((m) => m.threadId)).toEqual(["t9"]);
+  });
+
+  it("mail for the conversation you're reading doesn't wait in the banner", async () => {
+    await s.openThread("t1");
+    engine.mail?.(batch);
+    expect(s.ui.newMail).toEqual([]);
+  });
+
+  it("removing an account drops its waiting mail", async () => {
+    engine.mail?.(batch);
+    await s.removeAccount("a2");
+    expect(s.ui.newMail).toEqual([]);
+  });
+
+  it("Open for an account that's gone just clears it", async () => {
+    engine.mail?.([{ ...batch[0], accountId: "gone" }]);
+    await s.openNewMail();
+    expect(s.ui.accountId).toBe("all");
+    expect(s.ui.newMail).toEqual([]);
+  });
+
   it("the Dock badge counts unread mail in the inboxes", async () => {
     expect(engine.badge).toBe(0); // set by start()'s reload
   });

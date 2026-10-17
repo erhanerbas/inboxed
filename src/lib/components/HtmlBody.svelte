@@ -44,7 +44,7 @@
     }
     observer?.disconnect();
     steps = lastGrowth = 0;
-    observer = new ResizeObserver(measure);
+    observer = new ResizeObserver(() => requestAnimationFrame(measure)); // resizing inside the callback would loop
     observer.observe(d.body);
     d.addEventListener("load", measure, true); // images arriving change the height
     d.addEventListener("click", follow);

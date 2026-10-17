@@ -5,10 +5,13 @@
   import { dismissNewMail, openNewMail, ui } from "$lib/state.svelte";
 
   const newest = $derived(ui.newMail[0]);
+  // Conversations, not messages: three replies in one thread are one more thing to read.
+  const more = $derived(new Set(ui.newMail.map((m) => m.threadId)).size - 1);
 </script>
 
-<!-- Always rendered, so screen readers announce new mail when it appears. -->
-<div role="status" class="pointer-events-none fixed inset-x-0 top-4 z-30 flex justify-center px-4">
+<!-- Always rendered, so screen readers announce new mail when it appears. Top right, below the toolbars, where
+     macOS puts its own notifications: it never covers the window's drag areas or the search field. -->
+<div role="status" class="pointer-events-none fixed top-16 right-6 z-30 flex max-w-[calc(100vw-3rem)] justify-end">
   {#if newest}
     <div
       transition:rise
@@ -18,7 +21,7 @@
       <p class="min-w-0 flex-1 truncate">
         <span class="font-semibold">{newest.from}</span>
         <span class="text-ink-muted">{newest.subject}</span>
-        {#if ui.newMail.length > 1}<span class="text-caption text-ink-muted">· {ui.newMail.length - 1} more</span>{/if}
+        {#if more > 0}<span class="text-caption text-ink-muted">· {more} more</span>{/if}
       </p>
       <button class="btn-primary shrink-0" onclick={openNewMail}>Open</button>
       <button class="icon-btn shrink-0" aria-label="Dismiss" title="Dismiss" onclick={dismissNewMail}>

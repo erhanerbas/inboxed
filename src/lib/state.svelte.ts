@@ -130,15 +130,19 @@ async function followChanges() {
 // New mail: the banner always; a notification too when Inboxed isn't in front (in front, the banner is enough).
 function newMail(batch: NewMail[]) {
   if (!batch.length) return;
-  ui.newMail = [...batch, ...ui.newMail].slice(0, 20);
-  if (!document.hasFocus()) deliver(summarize(batch, data.accounts));
+  const here = document.hasFocus();
+  // What you're reading right now needs no banner.
+  const waiting = here ? batch.filter((m) => m.threadId !== ui.threadId) : batch;
+  ui.newMail = [...waiting, ...ui.newMail].slice(0, 50);
+  if (!here) deliver(summarize(batch, data.accounts));
 }
 
-/** The banner's Open: the newest mail's conversation, in its account's inbox. */
+/** The banner's Open: the newest mail's conversation, in its account's inbox. The rest keeps waiting. */
 export function openNewMail() {
   const [m] = ui.newMail;
-  ui.newMail = [];
   if (!m) return Promise.resolve();
+  ui.newMail = ui.newMail.filter((x) => x.threadId !== m.threadId);
+  if (!data.accounts.some((a) => a.id === m.accountId)) return Promise.resolve(); // removed meanwhile
   selectAccount(m.accountId);
   return openThread(m.threadId);
 }
@@ -166,6 +170,7 @@ export async function addAccount(settings: AccountSettings): Promise<string | nu
 
 export const removeAccount = (id: string) =>
   run(async () => {
+    ui.newMail = ui.newMail.filter((m) => m.accountId !== id);
     await api(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (ui.accountId === id) selectAccount("all");
     else if (data.thread?.accountId === id) ui.threadId = null; // its mail is gone, so its open thread closes too
