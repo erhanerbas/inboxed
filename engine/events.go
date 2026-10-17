@@ -13,8 +13,9 @@ var keepAlive = 25 * time.Second // a comment line now and then keeps idle conne
 // Events tells every connected UI that something changed, and what new mail arrived. Change events carry no data
 // (the UI reloads what it shows) and coalesce; mail events carry their messages and are queued.
 type Events struct {
-	mu   sync.Mutex
-	subs map[*subscriber]bool
+	mu      sync.Mutex
+	subs    map[*subscriber]bool
+	waiting [][]byte // mail found while no UI was listening (launch): the first one to connect gets it
 }
 
 type subscriber struct {
@@ -44,6 +45,13 @@ func (e *Events) Mail(batch []NewMail) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if len(e.subs) == 0 {
+		e.waiting = append(e.waiting, data)
+		if len(e.waiting) > 16 {
+			e.waiting = e.waiting[1:]
+		}
+		return
+	}
 	for sub := range e.subs {
 		for {
 			select {
@@ -70,6 +78,10 @@ func (e *Events) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sub := &subscriber{change: make(chan struct{}, 1), mail: make(chan []byte, 16)}
 	e.mu.Lock()
 	e.subs[sub] = true
+	for _, data := range e.waiting {
+		sub.mail <- data // fits: at most 16 wait, and the queue is new
+	}
+	e.waiting = nil
 	e.mu.Unlock()
 	defer func() {
 		e.mu.Lock()

@@ -166,60 +166,67 @@ func (s *Store) KnownUIDs(mailboxID string) (map[uint32]bool, error) {
 // AddMessage files one imported message: it joins (or starts) its thread and records where it lives on the server.
 // The same message found in another folder (a Sent copy, a Gmail label) only gains another location.
 func (s *Store) AddMessage(in Incoming) error {
+	_, _, err := s.addMessage(in)
+	return err
+}
+
+// addMessage is AddMessage, also saying which thread the message is in and whether it was new here (rather than a
+// copy of one already stored, which only gains a location).
+func (s *Store) addMessage(in Incoming) (threadID string, created bool, err error) {
 	msgID := in.AccountID + "/" + in.HeaderID
 	for i := range in.Attachments { // outside the transaction: a file nobody refers to is cleaned at the next start
 		if i < len(in.Files) {
 			hash, err := s.saveFile(in.Files[i])
 			if err != nil {
-				return err
+				return "", false, err
 			}
 			in.Attachments[i].Hash = hash
 		}
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return "", false, err
 	}
 	defer tx.Rollback()
-	var threadID string
 	err = tx.QueryRow(`SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&threadID)
 	if errors.Is(err, sql.ErrNoRows) {
+		created = true
 		if threadID, err = joinThread(tx, in, msgID); err != nil {
-			return err
+			return "", false, err
 		}
 		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject, html)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			msgID, threadID, toJSON(in.From), toJSON(orEmpty(in.To)), toJSON(orEmpty(in.Cc)), in.Date.UTC().Format(isoDate),
 			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject, in.HTML); err != nil {
-			return err
+			return "", false, err
 		}
 		for _, ref := range in.Refs {
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO message_refs (ref, message_id) VALUES (?, ?)`, in.AccountID+"/"+ref, msgID); err != nil {
-				return err
+				return "", false, err
 			}
 		}
 	} else if err != nil {
-		return err
+		return "", false, err
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO message_locations (mailbox_id, uid, message_id, seen, flagged) VALUES (?, ?, ?, ?, ?)`,
 		in.MailboxID, in.UID, msgID, in.Seen, in.Flagged); err != nil {
-		return err
+		return "", false, err
 	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_mailboxes (thread_id, mailbox_id) VALUES (?, ?)`, threadID, in.MailboxID); err != nil {
-		return err
+		return "", false, err
 	}
 	// A thread is unread while any copy of any of its messages is unseen, and starred while any is flagged.
 	if _, err := tx.Exec(`UPDATE threads SET unread = unread OR ?, starred = starred OR ? WHERE id = ?`,
 		!in.Seen, in.Flagged, threadID); err != nil {
-		return err
+		return "", false, err
 	}
 	if err := syncThread(tx, threadID); err != nil {
-		return err
+		return "", false, err
 	}
 	if err := refreshThread(tx, threadID); err != nil {
-		return err
+		return "", false, err
 	}
-	return tx.Commit()
+	return threadID, created, tx.Commit()
 }
 
 // joinThread picks the thread a new message belongs to, by every link it has to stored mail: its root's thread, the

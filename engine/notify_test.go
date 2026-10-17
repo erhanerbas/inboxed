@@ -14,7 +14,13 @@ import (
 )
 
 // mailAccount syncs the test server's account with a Syncer that records every batch of new mail it reports.
+// deliver appends to INBOX and wakes the sync; put appends to any folder without waking it; wake runs a pass.
 func mailAccount(t *testing.T) (got func() [][]NewMail, acc string, deliver func(raw string, flags ...imap.Flag)) {
+	got, acc, put, wake := mailAccountWith(t)
+	return got, acc, func(raw string, flags ...imap.Flag) { put("INBOX", raw, flags...); wake() }
+}
+
+func mailAccountWith(t *testing.T) (got func() [][]NewMail, acc string, put func(folder, raw string, flags ...imap.Flag), wake func()) {
 	t.Helper()
 	imapSrv, smtpSrv, user := testServers(t)
 	s := newTestStore(t)
@@ -37,9 +43,43 @@ func mailAccount(t *testing.T) (got func() [][]NewMail, acc string, deliver func
 		defer mu.Unlock()
 		return append([][]NewMail(nil), batches...)
 	}
-	return got, acc, func(raw string, flags ...imap.Flag) {
-		appendRaw(t, user, "INBOX", raw, flags...)
-		sy.Start(acc)
+	return got, acc, func(folder, raw string, flags ...imap.Flag) { appendRaw(t, user, folder, raw, flags...) }, func() { sy.Start(acc) }
+}
+
+func reported(got func() [][]NewMail) (n int) {
+	for _, b := range got() {
+		n += len(b)
+	}
+	return n
+}
+
+// Two copies of one message arriving together (on the list and in Cc) are one notification.
+func TestCopiesNotifyOnce(t *testing.T) {
+	got, _, put, wake := mailAccountWith(t)
+	put("INBOX", newsletter)
+	put("INBOX", newsletter)
+	wake()
+	eventually(t, "reported", func() bool { return reported(got) > 0 })
+	time.Sleep(300 * time.Millisecond)
+	if n := reported(got); n != 1 {
+		t.Errorf("%d notifications for one message", n)
+	}
+}
+
+// Mail that reached another folder first (Gmail's All Mail, a filing rule) still notifies when it reaches the inbox.
+func TestStoredElsewhereFirstStillNotifies(t *testing.T) {
+	got, acc, put, wake := mailAccountWith(t)
+	put("Archive", newsletter)
+	wake()
+	time.Sleep(500 * time.Millisecond) // a pass stores it from Archive: not new mail yet
+	if n := reported(got); n != 0 {
+		t.Fatalf("mail outside the inbox notified: %d", n)
+	}
+	put("INBOX", newsletter)
+	wake()
+	eventually(t, "it notifies once it's in the inbox", func() bool { return reported(got) == 1 })
+	if m := got()[0][0]; m.ThreadID != acc+"/n1@example.com" || m.Subject != "This week" {
+		t.Errorf("reported %+v", m)
 	}
 }
 
@@ -119,5 +159,36 @@ func TestEventsCarryMail(t *testing.T) {
 	var batch []NewMail
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(next(), "data: ")), &batch); err != nil || len(batch) != 1 || batch[0].From != "Maya" {
 		t.Errorf("data %+v (%v)", batch, err)
+	}
+}
+
+// Mail found before any UI is listening (the first pass at launch) waits for the first one that connects.
+func TestMailWaitsForTheFirstListener(t *testing.T) {
+	ev := NewEvents()
+	ev.Mail([]NewMail{{ThreadID: "acc/early", From: "Maya"}})
+	srv := httptest.NewServer(ev)
+	defer srv.Close()
+	res, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	sc := bufio.NewScanner(res.Body)
+	deadline := time.After(2 * time.Second)
+	lines := make(chan string)
+	go func() {
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	for {
+		select {
+		case l := <-lines:
+			if strings.Contains(l, "acc/early") {
+				return
+			}
+		case <-deadline:
+			t.Fatal("early mail never reached the first listener")
+		}
 	}
 }
