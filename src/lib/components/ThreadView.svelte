@@ -107,8 +107,9 @@
       </button>
     </header>
 
-    <div class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto max-w-3xl px-8 pt-6 pb-10">
+    <!-- The column widens with the pane (full screen, a hidden sidebar, a big display), so mail fills the space. -->
+    <div class="@container min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-3xl px-8 pt-6 pb-10 @5xl:max-w-5xl @5xl:px-12 @7xl:max-w-7xl @7xl:px-16">
         <h1 class="selectable text-title font-medium text-balance wrap-anywhere">{thread.subject}</h1>
         <p class="mt-1 text-caption text-ink-muted">
           {thread.messages.length}
@@ -169,7 +170,7 @@
                       <HtmlBody html={m.html} accountId={thread.accountId} />
                     {:else}
                       {#if body.text}
-                        <p class="max-w-[68ch] whitespace-pre-wrap" style:font-family={mailFont().family}>{body.text}</p>
+                        <p class="max-w-[68ch] whitespace-pre-wrap @7xl:max-w-[80ch]" style:font-family={mailFont().family}>{body.text}</p>
                       {/if}
                       {#if body.quoted && body.text}
                         <button
@@ -183,7 +184,7 @@
                       {/if}
                       {#if body.quoted && (!body.text || quotesShown.has(m.id))}
                         <p
-                          class="mt-3 max-w-[68ch] border-l-2 border-line pl-3 whitespace-pre-wrap text-ink-muted"
+                          class="mt-3 max-w-[68ch] border-l-2 @7xl:max-w-[80ch] border-line pl-3 whitespace-pre-wrap text-ink-muted"
                           style:font-family={mailFont().family}
                         >
                           {unquote(body.quoted)}
