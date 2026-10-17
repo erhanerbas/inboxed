@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Attachment01Icon, Cancel01Icon, InboxIcon, PencilEdit02Icon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
+  import { Attachment01Icon, InboxIcon, PencilEdit02Icon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
   import Icon from "./Icon.svelte";
   import FolderMenu from "./FolderMenu.svelte";
   import { contextmenu } from "$lib/contextmenu";
@@ -56,7 +56,7 @@
   </header>
 
   <!-- Which account this is, and how its sync is going. -->
-  <div class="-mt-2 px-4 pb-1 text-caption text-ink-muted">
+  <div class="-mt-2 px-4 pb-3 text-caption text-ink-muted">
     {#if account?.sync?.state === "importing"}
       {@const { done, total } = account.sync}
       <!-- No live region: a counter that changes every second and a half would talk over everything. -->
@@ -78,26 +78,14 @@
     {/if}
   </div>
 
-  <!-- Search is the head of the timeline: the gutter holds the glass (or, while searching, how many were found) and
-       the field starts at the spine, its rule meeting the spine in a corner that turns ink on focus. -->
-  <div class="grid shrink-0 grid-cols-[5.5rem_minmax(0,1fr)] pt-2 pr-4">
-    <div class="flex items-end justify-end pr-3 pb-1.5 text-ink-muted" aria-live="polite">
-      {#if ui.query}
-        <p class="text-right leading-none">
-          <span class="block text-day tabular-nums text-ink">{list.length}</span>
-          <span class="block text-caption">found</span>
-        </p>
-      {:else}
-        <Icon icon={Search01Icon} size={16} />
-      {/if}
-    </div>
+  <div class="px-3 pb-2">
     <label
-      class="flex h-11 items-center self-end border-b border-l border-line pl-[1.625rem] transition-colors duration-100 focus-within:border-ink"
+      class="flex h-8 items-center gap-2 rounded-md border border-line bg-canvas px-2.5 text-ink-muted transition-colors duration-100 focus-within:border-ink"
     >
+      <Icon icon={Search01Icon} size={14} />
       <input
-        id="search"
         bind:value={ui.query}
-        placeholder="Search mail"
+        placeholder="Search"
         aria-label="Search messages"
         onkeydown={(e) => {
           if (e.key !== "Escape") return;
@@ -106,19 +94,6 @@
         }}
         class="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-ink-muted"
       />
-      {#if ui.query}
-        <button
-          class="grid size-7 shrink-0 place-items-center rounded-full text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
-          aria-label="Clear search"
-          title="Clear search (Esc)"
-          onclick={() => {
-            ui.query = "";
-            document.getElementById("search")?.focus();
-          }}
-        >
-          <Icon icon={Cancel01Icon} size={14} />
-        </button>
-      {/if}
     </label>
   </div>
 
