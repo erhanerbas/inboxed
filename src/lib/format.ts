@@ -18,6 +18,7 @@ export function formatDate(iso: string, now = new Date(), locale?: string): stri
  *  then the month, with its year when that isn't this year. */
 export function dateGroup(iso: string, now = new Date(), locale?: string): string {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Today"; // the engine stores mail a moment before its date
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
   const daysAgo = Math.round((day(now).getTime() - day(d).getTime()) / 86_400_000); // round: DST days aren't 24h
   if (daysAgo <= 0) return "Today";

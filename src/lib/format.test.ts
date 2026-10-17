@@ -24,6 +24,7 @@ describe("dateGroup", () => {
     expect(group(at(2026, 9, 16, 9, 0))).toBe("Today");
   });
   it("Yesterday", () => expect(group(at(2026, 9, 14, 23, 59))).toBe("Yesterday"));
+  it("a missing date (mail still being imported) counts as Today", () => expect(group("")).toBe("Today"));
   it("This week starts on Monday", () => {
     expect(group(at(2026, 9, 12, 8, 0))).toBe("This week");
     expect(group(at(2026, 9, 11, 22, 0))).toBe("Last week");

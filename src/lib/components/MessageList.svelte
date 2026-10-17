@@ -78,8 +78,9 @@
   </div>
 
   {#if list.length}
-    <div id="message-list" class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-      {#each groups as g, gi (gi)}
+    <!-- scroll-pt keeps a row focused with the arrow keys clear of the sticky date heading. -->
+    <div id="message-list" class="min-h-0 flex-1 scroll-pt-8 overflow-y-auto px-2 pb-2">
+      {#each groups as g (g.label)}
         <h3 class="sticky top-0 z-1 bg-panel px-3 pt-3 pb-1 text-caption font-medium text-ink-muted">{g.label}</h3>
         <ul aria-label={g.label}>
           {#each g.threads as t (t.id)}

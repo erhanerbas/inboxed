@@ -75,8 +75,11 @@ async function loadThread() {
 }
 
 // After any change the engine is the source of truth, unread counts included.
+let mailboxRequest = 0;
 async function reload() {
+  const n = ++mailboxRequest;
   const mailboxes = await api<Mailbox[]>("/mailboxes");
+  if (n !== mailboxRequest) return; // reloads overlap (an action's and an event's); an older answer must not win
   data.mailboxes = mailboxes;
   // The selected folder may not exist yet (a new account's first sync) or any more (deleted on the server).
   if (ui.accountId !== "all" && !mailboxes.some((m) => m.id === ui.mailboxKey)) ui.mailboxKey = inboxOf(ui.accountId);

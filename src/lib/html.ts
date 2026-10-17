@@ -26,8 +26,16 @@ pre { white-space: pre-wrap; }
 // darkens without being understood. #ededed inverts to the app's dark canvas. The reader can switch back per message.
 const DARK = `:root { filter: invert(1) hue-rotate(180deg); background: #ededed; }
 body { background: #ededed; }
-img, video, picture, canvas, svg image, [background], [style*="background-image"], [style*="background: url"],
-[style*="background:url"] { filter: invert(1) hue-rotate(180deg); }`;
+img, video, canvas, svg image, [background], [style*="background-image"], [style*="background: url"],
+[style*="background:url"] { filter: invert(1) hue-rotate(180deg); }
+:is([background], [style*="background"]) :is(img, video, canvas, svg image) { filter: none; }`;
+
+// Mail that brings its own dark design gets to use it: the frame says dark instead of being inverted.
+const NATIVE_DARK = `:root { color-scheme: dark; } body { background: #121212; color: #ededed; }`;
+const OWN_DARK = /prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/i;
+
+/** Whether the message has a dark design of its own (it is then shown that way rather than inverted). */
+export const hasOwnDark = (html: string) => OWN_DARK.test(html);
 
 // <meta> (refresh), <base> and <link> become unknown, inert elements: renaming the tag can't be dodged the way
 // matching its attributes can. Links are kept once remote content is allowed (stylesheets then load); before that,
@@ -38,7 +46,7 @@ const INERT_LINK = /<(\/?)(link)\b/gi;
 const PROTOCOL_RELATIVE = /(\b(?:src|href|srcset|poster|background)\s*=\s*["']?\s*|url\(\s*["']?\s*)\/\/(?=[\w.-])/gi;
 
 /** The frame's document: the policy first, then the message. remote allows images, styles and fonts from the web;
- *  dark shows it inverted. */
+ *  dark shows it dark: in its own dark design when it has one, else inverted. */
 export function frameDoc(html: string, remote: boolean, dark = false): string {
   const web = remote ? " https: http:" : "";
   const policy =
@@ -48,7 +56,7 @@ export function frameDoc(html: string, remote: boolean, dark = false): string {
   if (!remote) body = body.replace(INERT_LINK, "<$1x-$2");
   return (
     `<!doctype html><html><head><meta charset="utf-8">` +
-    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}${dark ? DARK : ""}</style></head>` +
+    `<meta http-equiv="Content-Security-Policy" content="${policy}"><style>${BASE}${dark ? (hasOwnDark(html) ? NATIVE_DARK : DARK) : ""}</style></head>` +
     `<body>${body}</body></html>`
   );
 }

@@ -20,8 +20,10 @@ function apply(next: "light" | "dark", remember: boolean) {
       // Not remembered; the switch still works for this session.
     }
   }
-  // The window's own appearance (traffic lights, sidebar vibrancy) follows the app's, not the system's.
-  if ("__TAURI_INTERNALS__" in window) getCurrentWindow().setTheme(next).catch(console.error);
+  // The window's appearance (traffic lights, sidebar vibrancy) follows the app's choice once there is one. Until then
+  // it stays on the system's (null): pinning it would also pin the webview's prefers-color-scheme, and the system
+  // listener below would never hear a change.
+  if ("__TAURI_INTERNALS__" in window) getCurrentWindow().setTheme(remember || stored() ? next : null).catch(console.error);
 }
 
 const stored = () => {

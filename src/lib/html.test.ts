@@ -48,6 +48,19 @@ describe("frameDoc", () => {
     expect(frameDoc("<p>Hi</p>", false)).not.toContain("invert(");
   });
 
+  it("dark mail inverts a picture once, even inside <picture> or a background block", () => {
+    const dark = frameDoc("<p>Hi</p>", false, true);
+    expect(dark).not.toMatch(/\bpicture\b/);
+    expect(dark).toMatch(/:is\(\[background\][^)]*\)\s*:is\(img[^)]*\)\s*\{\s*filter:\s*none/);
+  });
+
+  it("mail with its own dark mode is shown that way rather than inverted", () => {
+    const own = "<style>@media (prefers-color-scheme: dark) { body { background: #000 } }</style><p>Hi</p>";
+    expect(frameDoc(own, false, true)).not.toContain("invert(");
+    expect(frameDoc(own, false, true)).toMatch(/:root\s*\{\s*color-scheme:\s*dark/);
+    expect(frameDoc(own, false, false)).not.toMatch(/:root\s*\{\s*color-scheme:\s*dark/);
+  });
+
   it("hides quoted history unless shown", () => {
     const doc = frameDoc("<p>Hi</p>", false);
     expect(doc).toContain(":root:not(.ib-show-quotes)");

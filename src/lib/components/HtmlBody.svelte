@@ -2,7 +2,7 @@
   import { MoreHorizontalIcon } from "@hugeicons/core-free-icons";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "./Icon.svelte";
-  import { frameDoc, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "$lib/html";
+  import { frameDoc, hasOwnDark, hasRemoteContent, mailtoDraft, QUOTE_SELECTOR } from "$lib/html";
   import { compose } from "$lib/state.svelte";
   import { theme } from "$lib/theme.svelte";
 
@@ -14,7 +14,9 @@
   let height = $state(0);
   let hasQuotes = $state(false);
   let showQuotes = $state(false);
-  const dark = $derived(theme.current === "dark" && !original);
+  // Mail with a dark design of its own follows the window's appearance by itself: there's no original to go back to.
+  const ownDark = $derived(hasOwnDark(html));
+  const dark = $derived(theme.current === "dark" && (ownDark || !original));
   const doc = $derived(frameDoc(html, remote, dark));
   let observer: ResizeObserver | undefined;
   let steps = 0;
@@ -103,7 +105,7 @@
     <button class="btn-secondary h-7 shrink-0 px-3 text-caption" onclick={() => (remote = true)}>Load images</button>
   </p>
 {/if}
-{#if theme.current === "dark"}
+{#if theme.current === "dark" && !ownDark}
   <!-- Darkening is a guess about someone else's design: the original is one click away, above the message. -->
   <div class="mb-2 flex justify-end">
     <button
