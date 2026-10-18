@@ -5,7 +5,7 @@
   import { addAccount, ui } from "$lib/state.svelte";
   import type { AccountSettings, Server } from "$lib/types";
 
-  // Gmail, Outlook and Yahoo sign-in arrive in Phase 8; until then every account is IMAP/SMTP.
+  // Every account is IMAP/SMTP: Gmail, Yahoo and iCloud connect with an app password.
   let dialog = $state<HTMLDialogElement>();
   $effect(() => dialog?.showModal());
 

@@ -1,7 +1,7 @@
 {
   "name": "inboxed",
   "version": "0.1.0",
-  "description": "",
+  "description": "A desktop email client for all your accounts in one place",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
