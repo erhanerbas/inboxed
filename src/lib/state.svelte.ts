@@ -1,6 +1,6 @@
 import { api, EngineError, follow, send } from "./engine";
 import { addresses, forwardBody, replyQuote, swapSignature, withSignature } from "./format";
-import { deliver, setBadge, summarize } from "./notify";
+import { deliver, notices, onTap, setBadge } from "./notify";
 import { settings } from "./settings.svelte";
 import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
 
@@ -114,6 +114,7 @@ let following = false;
 async function followChanges() {
   if (following) return;
   following = true;
+  onTap(openMail);
   let delay = 1000;
   for (;;) {
     const opened = Date.now();
@@ -130,20 +131,22 @@ async function followChanges() {
   }
 }
 
-// New mail: the banner always; a notification too when Inboxed isn't in front (in front, the banner is enough).
+// New mail: the banner always; when Inboxed isn't in front (or its window is closed), a notification per message from the
+// domains chosen in Settings. In front, the banner is enough.
 function newMail(batch: NewMail[]) {
   if (!batch.length) return;
   const here = document.hasFocus();
   // What you're reading right now needs no banner.
   const waiting = here ? batch.filter((m) => m.threadId !== ui.threadId) : batch;
   ui.newMail = [...waiting, ...ui.newMail].slice(0, 50);
-  if (!here && settings.notify) deliver(summarize(batch, data.accounts), settings.sound);
+  if (!here && settings.notify) for (const n of notices(batch, data.accounts, settings.notifyDomains)) deliver(n, settings.sound);
 }
 
 /** The banner's Open: the newest mail's conversation, in its account's inbox. The rest keeps waiting. */
-export function openNewMail() {
-  const [m] = ui.newMail;
-  if (!m) return Promise.resolve();
+export const openNewMail = () => (ui.newMail.length ? openMail(ui.newMail[0]) : Promise.resolve());
+
+/** Opens new mail's conversation in its account's inbox (the banner, a notification's click). */
+function openMail(m: NewMail) {
   ui.newMail = ui.newMail.filter((x) => x.threadId !== m.threadId);
   if (!data.accounts.some((a) => a.id === m.accountId)) return Promise.resolve(); // removed meanwhile
   selectAccount(m.accountId);

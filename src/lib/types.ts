@@ -88,4 +88,4 @@ export type Draft = {
 };
 
 /** A message that just arrived in an inbox (the engine's "mail" event). */
-export type NewMail = { accountId: string; threadId: string; from: string; subject: string; snippet: string };
+export type NewMail = { accountId: string; threadId: string; from: string; address: string; subject: string; snippet: string };

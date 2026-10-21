@@ -35,7 +35,8 @@ const DEFAULTS = {
   mailFont: "inter",
   markRead: true, // opening a conversation marks it read
   loadImages: false, // remote images load without asking (the sender can then see the mail was opened)
-  notify: true, // a desktop notification for new mail while Inboxed isn't in front
+  notify: true, // a desktop notification for each new message while Inboxed isn't in front
+  notifyDomains: "", // only mail from these sender domains notifies (any space, comma or line between); empty: all
   sound: true,
   dockBadge: true, // the inboxes' unread count on the Dock icon
   signatures: {} as Record<string, string>, // by account id

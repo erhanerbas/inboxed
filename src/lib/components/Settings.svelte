@@ -110,7 +110,25 @@
         "Senders can then tell when you open their mail, and where you are. Off: each message asks first.",
       )}
     {:else if tab === "Notifications"}
-      {@render toggle("notify", "Notify me about new mail", "Only while Inboxed isn't the app in front. In front, a banner shows it.")}
+      {@render toggle(
+        "notify",
+        "Notify me about new mail",
+        "One for each message, while Inboxed isn't the app in front or its window is closed. In front, a banner shows it.",
+      )}
+      <label class="stack-field py-3 {settings.notify ? '' : 'opacity-50'}">
+        <span>Only from these domains</span>
+        <textarea
+          rows="3"
+          disabled={!settings.notify}
+          placeholder="northwind.studio"
+          value={settings.notifyDomains}
+          oninput={(e) => {
+            settings.notifyDomains = e.currentTarget.value;
+            saveSettings();
+          }}
+        ></textarea>
+        <span class="font-normal">One per line; subdomains count too. Empty: mail from anyone.</span>
+      </label>
       {@render toggle("sound", "Play a sound", "With each notification.", !settings.notify)}
       {@render toggle("dockBadge", "Unread count on the Dock icon", "The number of unread conversations in your inboxes.", false, updateBadge)}
     {:else}

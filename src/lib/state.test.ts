@@ -67,6 +67,7 @@ vi.mock("./notify", async (real) => ({
   ...(await real<typeof import("./notify")>()),
   deliver: async (n: object, sound = true) => void engine.delivered.push(sound ? n : { ...n, silent: true }),
   setBadge: (n: number) => void (engine.badge = n),
+  onTap: () => {},
 }));
 
 let s: typeof import("./state.svelte");
@@ -379,7 +380,7 @@ describe("attachments", () => {
 });
 
 describe("new mail", () => {
-  const batch = [{ accountId: "a2", threadId: "t1", from: "Maya Chen", subject: "Plans", snippet: "Free?" }];
+  const batch = [{ accountId: "a2", threadId: "t1", from: "Maya Chen", address: "maya@x", subject: "Plans", snippet: "Free?" }];
 
   it("while you're here: a banner, no notification", () => {
     engine.mail?.(batch);
@@ -391,7 +392,7 @@ describe("new mail", () => {
     engine.focused = false;
     engine.mail?.(batch);
     await Promise.resolve();
-    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?" }]);
+    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?", mail: batch[0] }]);
     expect(s.ui.newMail).toEqual(batch);
   });
 
@@ -403,7 +404,7 @@ describe("new mail", () => {
     settings.notify = false;
     engine.mail?.(batch);
     await Promise.resolve();
-    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?", silent: true }]);
+    expect(engine.delivered).toEqual([{ title: "Maya Chen", body: "Plans\nFree?", mail: batch[0], silent: true }]);
   });
 
   it("Open goes to the account's inbox and the conversation, and clears the banner", async () => {

@@ -97,7 +97,7 @@ func TestNewMailIsReported(t *testing.T) {
 	eventually(t, "the new mail is reported", func() bool { return len(got()) == 1 })
 	b := got()[0]
 	if len(b) != 1 || b[0].From != "News" || b[0].Subject != "This week" || b[0].ThreadID != acc+"/n1@example.com" ||
-		b[0].AccountID != acc || b[0].Snippet != "Headlines." {
+		b[0].AccountID != acc || b[0].Snippet != "Headlines." || b[0].Address != "news@example.com" {
 		t.Errorf("reported %+v", b)
 	}
 }
