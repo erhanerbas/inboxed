@@ -11,6 +11,9 @@
     "opener:default",
     "notification:default",
     "core:window:allow-set-badge-count",
-    "core:window:allow-set-theme"
+    "core:window:allow-set-theme",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus"
   ]
 }

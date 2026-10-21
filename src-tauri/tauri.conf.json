@@ -25,6 +25,7 @@
           "y": 28
         },
         "transparent": true,
+        "backgroundThrottling": "disabled",
         "windowEffects": {
           "effects": [
             "sidebar"

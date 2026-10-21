@@ -92,7 +92,8 @@ type Progress struct {
 type NewMail struct {
 	AccountID string `json:"accountId"`
 	ThreadID  string `json:"threadId"`
-	From      string `json:"from"` // the sender's name, or address when there's none
+	From      string `json:"from"`    // the sender's name, or address when there's none
+	Address   string `json:"address"` // the sender's address, which the UI filters notifications by
 	Subject   string `json:"subject"`
 	Snippet   string `json:"snippet"`
 }

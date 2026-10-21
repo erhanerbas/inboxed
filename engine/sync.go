@@ -743,7 +743,7 @@ func (sy *Syncer) fetchBodies(c *imapclient.Client, l *link, j *job, w folderWor
 		// Stored for the first time and unread, not mine: new mail in an inbox, or remembered in case its inbox copy
 		// arrives in a later pass. (A second copy, or a message without a Message-ID fetched again, isn't created.)
 		if created && !seen && strings.ToLower(p.From.Email) != j.me {
-			n := NewMail{AccountID: j.id, ThreadID: threadID, From: cmp.Or(p.From.Name, p.From.Email), Subject: p.Subject, Snippet: snippet(p.Text)}
+			n := NewMail{AccountID: j.id, ThreadID: threadID, From: cmp.Or(p.From.Name, p.From.Email), Address: p.From.Email, Subject: p.Subject, Snippet: snippet(p.Text)}
 			switch {
 			case w.notify:
 				j.fresh = append(j.fresh, n)
