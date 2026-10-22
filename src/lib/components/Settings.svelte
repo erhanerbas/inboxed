@@ -1,6 +1,6 @@
 <script lang="ts">
   import Avatar from "./Avatar.svelte";
-  import { data, senders, ui, updateBadge } from "$lib/state.svelte";
+  import { data, renameAccount, senders, ui, updateBadge } from "$lib/state.svelte";
   import { FONTS, saveSettings, settings } from "$lib/settings.svelte";
   import { chooseTheme, theme } from "$lib/theme.svelte";
 
@@ -135,13 +135,36 @@
       {#if !data.accounts.length}
         <p class="text-ink-muted">No accounts yet.</p>
       {/if}
+      {#if data.accounts.length}
+        <p class="mb-4 text-caption text-ink-muted">Click a name to change it. It's how the account shows in Inboxed and the sender name on mail you send from it.</p>
+      {/if}
       <ul class="flex flex-col divide-y divide-line">
         {#each data.accounts as a (a.id)}
           <li class="py-4 first:pt-0">
             <div class="flex items-center gap-3">
               <Avatar name={a.name} color={a.color} size={28} />
               <span class="min-w-0 flex-1">
-                <span class="block truncate font-medium">{a.name}</span>
+                <!-- Edited in place: Enter or leaving the field saves, Esc puts the name back (and keeps Settings open). -->
+                <input
+                  class="-mx-1.5 block h-7 w-[calc(100%+0.75rem)] min-w-0 rounded-md bg-transparent px-1.5 font-medium text-ink outline-none transition-colors duration-100 hover:bg-ink/5 focus:bg-canvas focus:ring-1 focus:ring-ink"
+                  aria-label="Name of {a.email}"
+                  title="Rename"
+                  value={a.name}
+                  spellcheck="false"
+                  autocomplete="off"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    else if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.currentTarget.value = a.name;
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onblur={(e) => {
+                    renameAccount(a.id, e.currentTarget.value);
+                    e.currentTarget.value = a.name; // trimmed, or the address when left empty
+                  }}
+                />
                 <span class="block truncate text-caption text-ink-muted">{a.email}</span>
               </span>
               <button class="btn-secondary h-7 px-3 text-caption" onclick={() => (ui.removingAccount = a.id)}>Remove…</button>

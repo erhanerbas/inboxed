@@ -45,6 +45,25 @@ func TestCreateAndDeleteAccount(t *testing.T) {
 	}
 }
 
+func TestRenameAccount(t *testing.T) {
+	s := newTestStore(t)
+	addTestAccount(t, s)
+	name := func() string {
+		all, _ := s.Accounts()
+		i := slices.IndexFunc(all, func(a Account) bool { return a.ID == "acc" })
+		return all[i].Name
+	}
+	if err := s.RenameAccount("acc", "  Personal "); err != nil || name() != "Personal" {
+		t.Errorf("renamed to %q (%v)", name(), err)
+	}
+	if err := s.RenameAccount("acc", " "); err != nil || name() != "you@example.com" {
+		t.Errorf("an empty name falls back to the address, as when adding: %q (%v)", name(), err)
+	}
+	if err := s.RenameAccount("nope", "X"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("renaming a missing account: %v", err)
+	}
+}
+
 func TestAddMessageThreadsAndLocations(t *testing.T) {
 	s := newTestStore(t)
 	addTestAccount(t, s)

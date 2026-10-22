@@ -109,7 +109,7 @@ func (sy *Syncer) Send(d Draft) error {
 	sy.running.Go(func() {
 		if savesSentItself(set.SMTP.Host) {
 			sy.Wake(d.AccountID)
-		} else if _, err := sy.file(d.AccountID, "sent", out.Raw, imap.FlagSeen); err != nil && !errors.Is(err, ErrNotFound) {
+		} else if _, err := sy.file(d.AccountID, "sent", out.SentCopy, imap.FlagSeen); err != nil && !errors.Is(err, ErrNotFound) {
 			log.Printf("send %s: sent, but filing a copy in Sent failed: %v", d.AccountID, err)
 		}
 		if d.DraftID != "" {

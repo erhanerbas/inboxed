@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addresses, dateGroup, forwardBody, formatDate, formatSize, replyQuote, swapSignature, withSignature } from "./format";
+import { addresses, dateGroup, forwardBody, formatDate, formatSize, replyQuote, replyTo, swapSignature, withSignature } from "./format";
 import type { Message } from "./types";
 
 // Thursday 15 October 2026, 14:00 local time.
@@ -82,10 +82,42 @@ describe("forwardBody", () => {
 });
 
 describe("addresses", () => {
-  it("keeps names, quoted so commas in them can't split an address", () => {
+  it("keeps names, quoted only when a comma or the like could split an address", () => {
     expect(addresses([{ name: "Chen, Maya", email: "maya@x" }, { name: "sam@x", email: "sam@x" }, { name: "", email: "lee@x" }])).toBe(
       '"Chen, Maya" <maya@x>, sam@x, lee@x',
     );
+    expect(addresses([{ name: "Maya Chen", email: "maya@x" }, { name: "Seán O'Brien-Núñez Jr.", email: "sean@x" }])).toBe(
+      "Maya Chen <maya@x>, Seán O'Brien-Núñez Jr. <sean@x>",
+    );
+    expect(addresses([{ name: 'Maya "M" Chen', email: "maya@x" }, { name: "Sam (work)", email: "sam@x" }])).toBe(
+      '"Maya \\"M\\" Chen" <maya@x>, "Sam (work)" <sam@x>',
+    );
+  });
+});
+
+describe("replyTo", () => {
+  const maya = { name: "Maya Chen", email: "maya@example.com" };
+  const you = { name: "You", email: "you@example.com" };
+  const dan = { name: "Daniel Okafor", email: "dan@example.com" };
+  const priya = { name: "Priya Nair", email: "priya@example.com" };
+  const m = { ...original, from: maya, to: [you, dan], cc: [priya, { ...you, email: "YOU@example.com" }] };
+
+  it("Reply answers the sender", () => {
+    expect(replyTo(m, "you@example.com", false)).toEqual({ to: [maya], cc: [] });
+  });
+
+  it("Reply All keeps everyone where they were: the sender and To in To, Cc in Cc, never me", () => {
+    expect(replyTo(m, "you@example.com", true)).toEqual({ to: [maya, dan], cc: [priya] });
+  });
+
+  it("answering my own message goes to the people it went to", () => {
+    const mine = { ...m, from: you, to: [maya], cc: [priya] };
+    expect(replyTo(mine, "you@example.com", false)).toEqual({ to: [maya], cc: [] });
+    expect(replyTo(mine, "you@example.com", true)).toEqual({ to: [maya], cc: [priya] });
+  });
+
+  it("someone in both To and Cc is asked once", () => {
+    expect(replyTo({ ...m, cc: [dan, priya] }, "you@example.com", true)).toEqual({ to: [maya, dan], cc: [priya] });
   });
 });
 

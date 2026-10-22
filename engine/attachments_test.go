@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -69,10 +71,13 @@ func TestOpenAttachmentRoute(t *testing.T) {
 	}
 }
 
-func TestForwardCarriesAttachments(t *testing.T) {
+func TestComposeAttachesFiles(t *testing.T) {
 	s, inbox := trailStore(t)
 	add(t, s, inbox, 1, pdfMessage("menu@x"))
-	out, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", Subject: "Fwd: Menu", Body: "See below", ForwardOf: "acc/menu@x"}, seedNow, false)
+	files, _ := s.attachments("acc/menu@x") // a forward sends the original's files as they're stored
+	note, _ := s.saveFile([]byte("hello"))     // and an upload is stored the same way
+	out, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", Subject: "Fwd: Menu", Body: "See below",
+		Attachments: []Attachment{files[0], {Name: "a.txt", Type: "text/plain", Hash: note}}}, seedNow, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,12 +85,47 @@ func TestForwardCarriesAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(p.Text) != "See below" || len(p.Attachments) != 1 || p.Attachments[0].Name != "menu.pdf" ||
-		!bytes.Equal(p.Files[0], []byte("%PDF-1.4 tiny")) {
-		t.Errorf("forward: text %q, attachments %+v", p.Text, p.Attachments)
+	if strings.TrimSpace(p.Text) != "See below" || len(p.Attachments) != 2 || p.Attachments[0].Name != "menu.pdf" ||
+		!bytes.Equal(p.Files[0], []byte("%PDF-1.4 tiny")) || p.Attachments[1].Name != "a.txt" || string(p.Files[1]) != "hello" {
+		t.Errorf("text %q, attachments %+v", p.Text, p.Attachments)
 	}
-	if _, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", ForwardOf: "a1/x"}, seedNow, false); err == nil {
-		t.Error("forwarding another account's mail")
+}
+
+func TestComposeRefusesBadHashes(t *testing.T) {
+	s, _ := trailStore(t)
+	for _, hash := range []string{strings.Repeat("../", 21) + "a", strings.Repeat("A", 64), "abc"} {
+		if _, err := s.File(hash); !errors.Is(err, ErrNotFound) {
+			t.Errorf("File(%q): %v", hash, err)
+		}
+	}
+	_, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", Attachments: []Attachment{{Name: "gone.pdf", Hash: strings.Repeat("0", 64)}}}, seedNow, false)
+	var p problem
+	if !errors.As(err, &p) || !strings.Contains(err.Error(), "gone.pdf") {
+		t.Errorf("a missing file: %v", err)
+	}
+}
+
+func TestAttachmentBytesAPI(t *testing.T) {
+	s, inbox := trailStore(t)
+	add(t, s, inbox, 1, pdfMessage("menu@x"))
+	h := routes(s, testSyncer(t, s), NewEvents())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/messages/acc%2Fmenu%40x/attachments/0", nil))
+	if rec.Code != 200 || rec.Body.String() != "%PDF-1.4 tiny" || rec.Header().Get("Content-Type") != "application/pdf" ||
+		!strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment") {
+		t.Errorf("GET bytes: %d %q %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/messages/acc%2Fmenu%40x/attachments/1", nil))
+	if rec.Code != 404 {
+		t.Errorf("out of range: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/files", strings.NewReader("hello")))
+	var got struct{ Hash string }
+	json.NewDecoder(rec.Body).Decode(&got)
+	if data, err := s.File(got.Hash); rec.Code != 200 || string(data) != "hello" {
+		t.Errorf("POST /files: %d %q (%v)", rec.Code, data, err)
 	}
 }
 
@@ -99,18 +139,5 @@ func TestSafeNameStripsTricksAndFits(t *testing.T) {
 	long := safeName(strings.Repeat("é", 200) + ".pdf")
 	if len(long) > 200 || !strings.HasSuffix(long, ".pdf") || !utf8.ValidString(long) {
 		t.Errorf("long name: %d bytes, %q…", len(long), long[:10])
-	}
-}
-
-func TestForwardLeavesInlineImagesBehind(t *testing.T) {
-	s, inbox := trailStore(t)
-	add(t, s, inbox, 1, richMessage) // a PDF and an inline logo
-	out, err := s.Compose(Draft{AccountID: "acc", To: "sam@x", Subject: "Fwd", ForwardOf: "acc/m1@example.com"}, seedNow, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, _ := parseMessage(out.Raw, seedNow)
-	if len(p.Attachments) != 1 || p.Attachments[0].Name != "menu.pdf" {
-		t.Errorf("forwarded %+v", p.Attachments)
 	}
 }

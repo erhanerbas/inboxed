@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,7 +16,8 @@ func (s *Store) saveFile(data []byte) (string, error) {
 	hash := hex.EncodeToString(sum[:])
 	path := filepath.Join(s.files, hash)
 	if _, err := os.Stat(path); err == nil {
-		return hash, nil
+		now := time.Now() // fresh again, so a startup clean-up that began before this doesn't take it
+		return hash, os.Chtimes(path, now, now)
 	}
 	if err := os.MkdirAll(s.files, 0o700); err != nil {
 		return "", err
@@ -37,10 +39,14 @@ func (s *Store) saveFile(data []byte) (string, error) {
 
 // File is an attachment's content.
 func (s *Store) File(hash string) ([]byte, error) {
-	if len(hash) != 64 { // a hash from the database, never a path
+	if !isHash(hash) { // a SHA-256 in hex, never a path (drafts name files too)
 		return nil, ErrNotFound
 	}
 	return os.ReadFile(filepath.Join(s.files, hash))
+}
+
+func isHash(s string) bool {
+	return len(s) == 64 && strings.Trim(s, "0123456789abcdef") == ""
 }
 
 // cleanGrace: files this recent may belong to a message still being stored (tests shorten it).

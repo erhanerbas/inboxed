@@ -14,7 +14,7 @@
   import { prefersReducedMotion } from "svelte/motion";
   import { SvelteSet } from "svelte/reactivity";
   import Avatar from "./Avatar.svelte";
-  import { archive, data, editDraft, forward, openAttachment, reply, toggleStar, trash, ui } from "$lib/state.svelte";
+  import { archive, canReplyAll, data, editDraft, forward, previewAttachment, reply, toggleStar, trash, ui } from "$lib/state.svelte";
   import HtmlBody from "./HtmlBody.svelte";
   import Logo from "./Logo.svelte";
   import { formatDate, formatSize } from "$lib/format";
@@ -198,8 +198,8 @@
                             <li>
                               <button
                                 class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption transition-colors duration-100 hover:bg-ink/5 active:bg-ink/10"
-                                title="Save to Downloads and show it"
-                                onclick={() => openAttachment(m.id, i)}
+                                title="Preview"
+                                onclick={() => previewAttachment(m.id, i)}
                               >
                                 <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
                                 {a.name}
@@ -218,7 +218,7 @@
                         <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id)}>
                           <Icon icon={MailReply01Icon} size={15} /> Reply
                         </button>
-                        {#if thread.participants.length > 1}
+                        {#if canReplyAll(thread)}
                           <button class="btn-secondary flex items-center gap-1.5" onclick={() => reply(thread.id, true)}>
                             <Icon icon={MailReplyAll01Icon} size={15} /> Reply All
                           </button>

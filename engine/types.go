@@ -40,6 +40,7 @@ type Message struct {
 	From        Address      `json:"from"`
 	To          []Address    `json:"to"`
 	Cc          []Address    `json:"cc"`
+	Bcc         []Address    `json:"bcc,omitempty"` // a draft's only
 	Date        string       `json:"date"`
 	Body        string       `json:"body"`
 	Attachments []Attachment `json:"attachments"`

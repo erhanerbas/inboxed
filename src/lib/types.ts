@@ -28,6 +28,7 @@ export type Message = {
   from: Address;
   to: Address[];
   cc: Address[];
+  bcc?: Address[]; // a draft's only
   date: string; // ISO 8601, UTC
   body: string; // plain text; HTML rendering arrives in Phase 6
   attachments: Attachment[];
@@ -41,7 +42,11 @@ export type Attachment = {
   size: number;
   type?: string;
   inline?: boolean; // shown inside the HTML, so not listed
+  hash?: string; // the content as the engine stores it: how a draft names the files it carries
 };
+
+/** Someone in the mail, as address fields and @mentions suggest them (the engine ranks them). */
+export type Contact = { name: string; email: string };
 
 /** A row in a list: everything but the messages. */
 export type ThreadSummary = {
@@ -80,11 +85,13 @@ export type Draft = {
   accountId: string;
   to: string; // as typed: comma-separated, "Name <email>" allowed; the engine parses and checks it
   cc: string;
+  bcc: string;
   subject: string;
-  body: string;
+  body: string; // the plain-text version
+  html?: string; // the formatted message, as the editor holds it (emailHtml makes what's sent)
   threadId?: string;
   draftId?: string;
-  forwardOf?: string; // a message whose attachments go along
+  attachments: Attachment[]; // uploads, a forward's files, a resumed draft's own: all named by hash
 };
 
 /** A message that just arrived in an inbox (the engine's "mail" event). */
