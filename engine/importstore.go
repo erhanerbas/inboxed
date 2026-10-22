@@ -15,7 +15,7 @@ type parsed struct {
 	Root        string // thread key: the first message the conversation refers back to
 	Subject     string
 	From        Address
-	To, Cc      []Address
+	To, Cc, Bcc []Address // Bcc: only a draft has it
 	Date        time.Time
 	Text        string
 	Attachments []Attachment
@@ -73,6 +73,19 @@ func (s *Store) AccountSettings(id string) (AccountSettings, error) {
 // DeleteAccount removes an account and, by cascade, its folders, threads, messages, locations and search rows.
 func (s *Store) DeleteAccount(id string) error {
 	res, err := s.db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RenameAccount changes the name shown for an account (and on its outgoing mail). Empty means its address, as when
+// it was added.
+func (s *Store) RenameAccount(id, name string) error {
+	res, err := s.db.Exec(`UPDATE accounts SET name = coalesce(nullif(?, ''), email) WHERE id = ?`, strings.TrimSpace(name), id)
 	if err != nil {
 		return err
 	}
@@ -194,10 +207,10 @@ func (s *Store) addMessage(in Incoming) (threadID string, created bool, err erro
 		if threadID, err = joinThread(tx, in, msgID); err != nil {
 			return "", false, err
 		}
-		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject, html)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.Exec(`INSERT INTO messages (id, thread_id, sender, recipients, cc, date, body, attachments, header_id, subject, html, bcc)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			msgID, threadID, toJSON(in.From), toJSON(orEmpty(in.To)), toJSON(orEmpty(in.Cc)), in.Date.UTC().Format(isoDate),
-			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject, in.HTML); err != nil {
+			in.Text, toJSON(orEmpty(in.Attachments)), in.HeaderID, in.Subject, in.HTML, toJSON(orEmpty(in.Bcc))); err != nil {
 			return "", false, err
 		}
 		for _, ref := range in.Refs {

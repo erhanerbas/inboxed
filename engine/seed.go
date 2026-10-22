@@ -6,8 +6,14 @@ import (
 	"time"
 )
 
-//go:embed seed.json
-var seedJSON []byte
+// seed.json is the small set tests rely on (INBOXED_SEED=1); demo.json is fuller mail for screenshots
+// (INBOXED_SEED=demo, which `npm run demo` sets).
+var (
+	//go:embed seed.json
+	seedJSON []byte
+	//go:embed demo.json
+	demoJSON []byte
+)
 
 type seedMessage struct {
 	Message
@@ -19,9 +25,9 @@ type seedThread struct {
 	Messages []seedMessage `json:"messages"`
 }
 
-// Seed fills an empty database with the demo mailboxes, dated relative to now. Debug builds only
-// (INBOXED_SEED=1) until Phase 3 can add real accounts. Does nothing if any account exists.
-func (s *Store) Seed(now time.Time) error {
+// Seed fills an empty database with demo mailboxes from data (seedJSON or demoJSON), dated relative to now.
+// Does nothing if any account exists.
+func (s *Store) Seed(now time.Time, data []byte) error {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&n); err != nil || n > 0 {
 		return err
@@ -31,7 +37,7 @@ func (s *Store) Seed(now time.Time) error {
 		Mailboxes []Mailbox
 		Threads   []seedThread
 	}
-	if err := json.Unmarshal(seedJSON, &seed); err != nil {
+	if err := json.Unmarshal(data, &seed); err != nil {
 		return err
 	}
 	for i, a := range seed.Accounts {
@@ -55,6 +61,14 @@ func (s *Store) Seed(now time.Time) error {
 		}
 		if err := s.PutThread(t); err != nil {
 			return err
+		}
+		for _, m := range t.Messages {
+			if m.HTML == "" {
+				continue
+			}
+			if _, err := s.db.Exec(`UPDATE messages SET html = ? WHERE id = ?`, m.HTML, m.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

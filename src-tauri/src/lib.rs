@@ -45,9 +45,15 @@ pub fn run() {
             // The engine keeps its database in the app data folder (~/Library/Application Support/dev.inboxed.app).
             // Debug builds get their own subfolder, so accounts added while developing never mix with a real install's.
             let debug = cfg!(debug_assertions);
+            // `npm run demo` (INBOXED_DEMO=1, debug builds only) shows demo mail for screenshots, from a folder of its own
+            // that starts empty every launch, so the engine seeds it again with recent dates.
+            let demo = debug && std::env::var("INBOXED_DEMO").as_deref() == Ok("1");
             let mut data_dir = app.path().app_data_dir()?;
             if debug {
-                data_dir.push("debug");
+                data_dir.push(if demo { "demo" } else { "debug" });
+            }
+            if demo && data_dir.exists() {
+                std::fs::remove_dir_all(&data_dir)?;
             }
             std::fs::create_dir_all(&data_dir)?;
             let engine = app
@@ -55,7 +61,7 @@ pub fn run() {
                 .sidecar("inboxed-engine")?
                 .env("INBOXED_DATA_DIR", &data_dir)
                 // Development-only knobs, set explicitly so a variable exported in the shell can't reach the engine.
-                .env("INBOXED_SEED", "") // demo mail is for `npm run dev:engine` (the browser) only
+                .env("INBOXED_SEED", if demo { "demo" } else { "" }) // the app seeds only in demo mode
                 .env("INBOXED_ORIGINS", if debug { "http://localhost:1420" } else { "" }) // the Vite dev server
                 .env("INBOXED_PORT", "")
                 .env("INBOXED_TOKEN", "")

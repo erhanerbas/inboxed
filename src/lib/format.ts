@@ -93,7 +93,20 @@ export function forwardBody(m: Message, subject: string, locale?: string): strin
   ].join("\n");
 }
 
-/** Addresses as the To and Cc fields take them. Names are quoted, so one with a comma can't split an address. */
+/** Addresses as the To and Cc fields take them. A name is quoted only when it has to be (a comma in it would split
+ *  the address); the engine reads plain names, accents and apostrophes included. */
 export function addresses(list: Address[]): string {
-  return list.map((a) => (a.name && a.name !== a.email ? `"${a.name.replace(/["\\]/g, "\\$&")}" <${a.email}>` : a.email)).join(", ");
+  const named = (name: string) => (/["(),:;<>@[\\\]]/.test(name) ? `"${name.replace(/["\\]/g, "\\$&")}"` : name);
+  return list.map((a) => (a.name && a.name !== a.email ? `${named(a.name)} <${a.email}>` : a.email)).join(", ");
+}
+
+/** Who a reply goes to. Reply: the sender, or, answering my own message, the people it went to. Reply All also keeps
+ *  everyone else where they were: To in To, Cc in Cc. Never me, and nobody twice. */
+export function replyTo(m: Message, me: string, all: boolean): { to: Address[]; cc: Address[] } {
+  const seen = new Set([me.toLowerCase()]);
+  const fresh = (list: Address[]) =>
+    list.filter((a) => !seen.has(a.email.toLowerCase()) && !!seen.add(a.email.toLowerCase()));
+  const mine = m.from.email.toLowerCase() === me.toLowerCase();
+  const to = fresh(mine ? m.to : all ? [m.from, ...m.to] : [m.from]);
+  return { to, cc: all ? fresh(m.cc) : [] };
 }

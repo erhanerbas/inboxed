@@ -1,0 +1,226 @@
+{
+  "accounts": [
+    { "id": "a1", "name": "Personal", "email": "alex@morgan.family", "provider": "gmail", "color": "oklch(0.5 0.11 160)" },
+    { "id": "a2", "name": "Northwind", "email": "alex@northwind.studio", "provider": "outlook", "color": "oklch(0.5 0.12 250)" },
+    { "id": "a3", "name": "Rowing Club", "email": "alex.morgan@harbourrowing.club", "provider": "yahoo", "color": "oklch(0.55 0.13 45)" }
+  ],
+  "mailboxes": [
+    { "id": "a1-inbox", "accountId": "a1", "name": "Inbox", "role": "inbox", "parentId": null },
+    { "id": "a1-starred", "accountId": "a1", "name": "Starred", "role": "starred", "parentId": null },
+    { "id": "a1-drafts", "accountId": "a1", "name": "Drafts", "role": "drafts", "parentId": null },
+    { "id": "a1-sent", "accountId": "a1", "name": "Sent", "role": "sent", "parentId": null },
+    { "id": "a1-archive", "accountId": "a1", "name": "All Mail", "role": "archive", "parentId": null },
+    { "id": "a1-spam", "accountId": "a1", "name": "Spam", "role": "spam", "parentId": null },
+    { "id": "a1-trash", "accountId": "a1", "name": "Trash", "role": "trash", "parentId": null },
+    { "id": "a1-family", "accountId": "a1", "name": "Family", "role": null, "parentId": null },
+    { "id": "a1-receipts", "accountId": "a1", "name": "Receipts", "role": null, "parentId": null },
+    { "id": "a1-travel", "accountId": "a1", "name": "Travel", "role": null, "parentId": null },
+    { "id": "a1-travel-lisbon", "accountId": "a1", "name": "Lisbon", "role": null, "parentId": "a1-travel" },
+    { "id": "a2-inbox", "accountId": "a2", "name": "Inbox", "role": "inbox", "parentId": null },
+    { "id": "a2-drafts", "accountId": "a2", "name": "Drafts", "role": "drafts", "parentId": null },
+    { "id": "a2-sent", "accountId": "a2", "name": "Sent Items", "role": "sent", "parentId": null },
+    { "id": "a2-archive", "accountId": "a2", "name": "Archive", "role": "archive", "parentId": null },
+    { "id": "a2-trash", "accountId": "a2", "name": "Deleted Items", "role": "trash", "parentId": null },
+    { "id": "a2-clients", "accountId": "a2", "name": "Clients", "role": null, "parentId": null },
+    { "id": "a2-clients-halden", "accountId": "a2", "name": "Halden Coffee", "role": null, "parentId": "a2-clients" },
+    { "id": "a2-clients-nordlys", "accountId": "a2", "name": "Nordlys Hotels", "role": null, "parentId": "a2-clients" },
+    { "id": "a2-hiring", "accountId": "a2", "name": "Hiring", "role": null, "parentId": null },
+    { "id": "a3-inbox", "accountId": "a3", "name": "Inbox", "role": "inbox", "parentId": null },
+    { "id": "a3-drafts", "accountId": "a3", "name": "Draft", "role": "drafts", "parentId": null },
+    { "id": "a3-sent", "accountId": "a3", "name": "Sent", "role": "sent", "parentId": null },
+    { "id": "a3-trash", "accountId": "a3", "name": "Trash", "role": "trash", "parentId": null }
+  ],
+  "threads": [
+    {
+      "id": "d1", "accountId": "a2", "mailboxIds": ["a2-inbox", "a2-clients-halden"],
+      "subject": "Halden Coffee: packaging, round two", "unread": true,
+      "messages": [
+        { "id": "d1m1", "minutesAgo": 2950, "from": { "name": "Maya Chen", "email": "maya@northwind.studio" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }, { "name": "Daniel Okafor", "email": "daniel@northwind.studio" }],
+          "body": "Hi both,\n\nI've put the second round of the Halden bags in the shared file. Three directions:\n\n1. Kraft with a single ink colour, the logo stamped large\n2. Matte black with the origin map in a fine line\n3. The illustrated series, one animal per origin\n\nCould you each pick a favourite before Thursday's call?\n\nMaya" },
+        { "id": "d1m2", "minutesAgo": 2700, "from": { "name": "Daniel Okafor", "email": "daniel@northwind.studio" },
+          "to": [{ "name": "Maya Chen", "email": "maya@northwind.studio" }, { "name": "Alex Morgan", "email": "alex@northwind.studio" }],
+          "body": "Two for me. The map is a story they can tell in the café, and it prints well on the small 250 g bags.\n\nOn Tue, Maya Chen wrote:\n> Could you each pick a favourite before Thursday's call?" },
+        { "id": "d1m3", "minutesAgo": 1500, "from": { "name": "Alex Morgan", "email": "alex@northwind.studio" },
+          "to": [{ "name": "Maya Chen", "email": "maya@northwind.studio" }, { "name": "Daniel Okafor", "email": "daniel@northwind.studio" }],
+          "body": "Agree on two. Could we try the map in their warm brown instead of white? Black and white reads a little cold next to the shop.\n\nOn Tue, Daniel Okafor wrote:\n> Two for me. The map is a story they can tell in the café." },
+        { "id": "d1m4", "minutesAgo": 40, "from": { "name": "Maya Chen", "email": "maya@northwind.studio" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }, { "name": "Daniel Okafor", "email": "daniel@northwind.studio" }],
+          "body": "Done. The brown works much better, it feels like their counter now. Mock-ups attached, front and back.\n\nIf you're both happy I'll send it to Ingrid this afternoon.\n\nMaya\n\nOn Wed, Alex Morgan wrote:\n> Could we try the map in their warm brown instead of white?",
+          "attachments": [{ "name": "halden-bag-front.png", "size": 1840000, "type": "image/png" }, { "name": "halden-bag-back.png", "size": 1620000, "type": "image/png" }] }
+      ]
+    },
+    {
+      "id": "d2", "accountId": "a3", "mailboxIds": ["a3-inbox"],
+      "subject": "Saturday's row moves to 7:00", "unread": true,
+      "messages": [
+        { "id": "d2m1", "minutesAgo": 95, "from": { "name": "Harbour Rowing Club", "email": "captain@harbourrowing.club" },
+          "to": [{ "name": "Members", "email": "members@harbourrowing.club" }],
+          "body": "Morning all,\n\nHigh tide is early this weekend, so Saturday's outing starts at 7:00 rather than 8:00. Boats on the water by 7:15, coffee at the boathouse afterwards.\n\nIf you can't make the earlier time, reply and I'll move you to Sunday's crew.\n\nTom" }
+      ]
+    },
+    {
+      "id": "d3", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-travel-lisbon"],
+      "subject": "Your trip to Lisbon is confirmed", "unread": true,
+      "messages": [
+        { "id": "d3m1", "minutesAgo": 150, "from": { "name": "Skyline Air", "email": "bookings@skyline-air.travel" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "Booking reference: K7Q2XP\n\nOutbound  Fri 6 Nov  07:40  London City → Lisbon\nReturn    Mon 9 Nov  18:15  Lisbon → London City\n\nPassengers: Alex Morgan, Jordan Morgan\nSeats: 4A, 4B\n\nYour boarding passes are attached. Online check-in opens 36 hours before departure.",
+          "attachments": [{ "name": "boarding-pass-alex.pdf", "size": 182000, "type": "application/pdf" }, { "name": "boarding-pass-jordan.pdf", "size": 181000, "type": "application/pdf" }] }
+      ]
+    },
+    {
+      "id": "d4", "accountId": "a2", "mailboxIds": ["a2-inbox"],
+      "subject": "Q4 plan: please review before Friday", "unread": true,
+      "messages": [
+        { "id": "d4m1", "minutesAgo": 320, "from": { "name": "Priya Nair", "email": "priya@northwind.studio" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }],
+          "body": "Hi Alex,\n\nAttached are the Q4 plan and the estimates sheet. Two open questions on page 3: whether we take on the Nordlys rebrand before the new year, and whether we hire a second motion designer or keep using freelancers.\n\nComments by Friday would be great.\n\nPriya",
+          "attachments": [{ "name": "q4-plan.pdf", "size": 2400000, "type": "application/pdf" }, { "name": "estimates.xlsx", "size": 48000, "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }] }
+      ]
+    },
+    {
+      "id": "d5", "accountId": "a1", "mailboxIds": ["a1-inbox"],
+      "subject": "Field Notes #112: the quiet interface", "unread": true,
+      "messages": [
+        { "id": "d5m1", "minutesAgo": 540, "from": { "name": "Field Notes", "email": "letters@fieldnotes.press" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "The best tools disappear while you work. This week: why hairlines beat shadows, how to choose a type scale you won't regret, and three apps that get motion right.\n\nRead online: https://fieldnotes.press/112",
+          "html": "<div style=\"background:#f4f2ee;padding:32px 16px;font-family:Georgia,serif;color:#222\"><table role=\"presentation\" width=\"100%\" style=\"max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px\"><tr><td style=\"padding:36px 40px 8px\"><p style=\"margin:0;font:600 12px/1 -apple-system,Helvetica,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#8a7f72\">Field Notes · Issue 112</p><h1 style=\"margin:16px 0 0;font-size:30px;line-height:1.2;font-weight:normal\">The quiet interface</h1></td></tr><tr><td style=\"padding:16px 40px 8px;font-size:17px;line-height:1.6\"><p>The best tools disappear while you work. You notice them only when something goes wrong, and the rest of the time they hold still and let the work be the loudest thing on the screen.</p><p>This week we look at three small decisions that add up to that feeling:</p><ul style=\"padding-left:20px\"><li style=\"margin-bottom:8px\"><b>Hairlines over shadows.</b> A one-pixel line separates without lifting anything off the page.</li><li style=\"margin-bottom:8px\"><b>A type scale you won't regret.</b> Five sizes, used with discipline, beat twelve used freely.</li><li><b>Motion that explains.</b> Things should move the way they would if they were real: from somewhere, to somewhere.</li></ul></td></tr><tr><td style=\"padding:8px 40px 36px\"><a href=\"https://fieldnotes.press/112\" style=\"display:inline-block;background:#222;color:#fff;text-decoration:none;font:600 15px/1 -apple-system,Helvetica,sans-serif;padding:14px 22px;border-radius:8px\">Read the full issue</a></td></tr></table><p style=\"max-width:560px;margin:20px auto 0;text-align:center;font:12px/1.5 -apple-system,Helvetica,sans-serif;color:#8a7f72\">You're getting this because you subscribed at fieldnotes.press.<br><a href=\"https://fieldnotes.press/unsubscribe\" style=\"color:#8a7f72\">Unsubscribe</a></p></div>" }
+      ]
+    },
+    {
+      "id": "d6", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-family"],
+      "subject": "Photos from the weekend", "starred": true,
+      "messages": [
+        { "id": "d6m1", "minutesAgo": 1380, "from": { "name": "Mum", "email": "helen.morgan@morgan.family" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }, { "name": "Jordan Morgan", "email": "jordan@morgan.family" }],
+          "body": "Hello you two,\n\nHere are the photos from Sunday. The one of Dad with the giant marrow is my favourite. He's already planning next year's.\n\nLove,\nMum",
+          "attachments": [{ "name": "IMG_4021.jpg", "size": 3200000, "type": "image/jpeg" }, { "name": "IMG_4027.jpg", "size": 2900000, "type": "image/jpeg" }, { "name": "IMG_4033.jpg", "size": 3100000, "type": "image/jpeg" }] },
+        { "id": "d6m2", "minutesAgo": 1300, "from": { "name": "Alex Morgan", "email": "alex@morgan.family" },
+          "to": [{ "name": "Mum", "email": "helen.morgan@morgan.family" }, { "name": "Jordan Morgan", "email": "jordan@morgan.family" }],
+          "body": "These are lovely, thank you! The marrow deserves a frame.\n\nOn Sun, Mum wrote:\n> The one of Dad with the giant marrow is my favourite." }
+      ]
+    },
+    {
+      "id": "d7", "accountId": "a1", "mailboxIds": ["a1-inbox"],
+      "subject": "Dinner on Saturday?",
+      "messages": [
+        { "id": "d7m1", "minutesAgo": 1700, "from": { "name": "Sam Rivera", "email": "sam@rivera.cc" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "Are you free Saturday? Thinking of the new place on Harbour Street, around 8." },
+        { "id": "d7m2", "minutesAgo": 1450, "from": { "name": "Alex Morgan", "email": "alex@morgan.family" },
+          "to": [{ "name": "Sam Rivera", "email": "sam@rivera.cc" }],
+          "body": "Saturday works, but I'm rowing early so let's make it 7:30? I'll book a table.\n\nOn Thu, Sam Rivera wrote:\n> Are you free Saturday? Thinking of the new place on Harbour Street, around 8." },
+        { "id": "d7m3", "minutesAgo": 1420, "from": { "name": "Sam Rivera", "email": "sam@rivera.cc" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "7:30 it is. See you there!\n\nOn Thu, Alex Morgan wrote:\n> let's make it 7:30?" }
+      ]
+    },
+    {
+      "id": "d8", "accountId": "a2", "mailboxIds": ["a2-inbox", "a2-hiring"],
+      "subject": "Interview loop: senior motion designer", "starred": true,
+      "messages": [
+        { "id": "d8m1", "minutesAgo": 3100, "from": { "name": "Lena Hoffmann", "email": "lena@northwind.studio" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }, { "name": "Priya Nair", "email": "priya@northwind.studio" }],
+          "body": "Hi both,\n\nWe have three candidates for the final round. I've booked Tuesday and Wednesday afternoons:\n\nTue 14:00  Ruth Adeyemi (portfolio review)\nTue 16:00  Marco Bellini (portfolio review)\nWed 15:00  Hana Sato (portfolio review + paired exercise)\n\nPortfolios and CVs are in the Hiring folder. Let me know if any slot clashes.\n\nLena" },
+        { "id": "d8m2", "minutesAgo": 2980, "from": { "name": "Priya Nair", "email": "priya@northwind.studio" },
+          "to": [{ "name": "Lena Hoffmann", "email": "lena@northwind.studio" }, { "name": "Alex Morgan", "email": "alex@northwind.studio" }],
+          "body": "All three work for me. Hana's reel is wonderful.\n\nOn Mon, Lena Hoffmann wrote:\n> Let me know if any slot clashes." }
+      ]
+    },
+    {
+      "id": "d9", "accountId": "a2", "mailboxIds": ["a2-inbox", "a2-clients-nordlys"],
+      "subject": "Nordlys rebrand: kick-off notes",
+      "messages": [
+        { "id": "d9m1", "minutesAgo": 4400, "from": { "name": "Ingrid Solberg", "email": "ingrid@nordlys.hotels" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }],
+          "cc": [{ "name": "Daniel Okafor", "email": "daniel@northwind.studio" }],
+          "body": "Hi Alex,\n\nThank you for a great session yesterday. A short summary of what we agreed:\n\n- The new identity should feel calm, northern and a little bit warm\n- Six properties, one system: each hotel gets its own colour from the same palette\n- First presentation in three weeks, in Bergen\n\nThe brief and our current guidelines are attached.\n\nBest,\nIngrid",
+          "attachments": [{ "name": "nordlys-brief.pdf", "size": 980000, "type": "application/pdf" }, { "name": "current-guidelines.pdf", "size": 5800000, "type": "application/pdf" }] }
+      ]
+    },
+    {
+      "id": "d10", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-receipts"],
+      "subject": "Your order has shipped",
+      "messages": [
+        { "id": "d10m1", "minutesAgo": 5600, "from": { "name": "Halden Coffee", "email": "orders@haldencoffee.shop" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "Good news, your order #HC-20841 is on its way.\n\n1 × Ethiopia Guji, 250 g        £11.50\n1 × House espresso, 1 kg        £32.00\nShipping                         £0.00\nTotal                           £43.50\n\nTrack your parcel: https://haldencoffee.shop/track/HC-20841" }
+      ]
+    },
+    {
+      "id": "d11", "accountId": "a2", "mailboxIds": ["a2-inbox"],
+      "subject": "Studio lunch on Friday",
+      "messages": [
+        { "id": "d11m1", "minutesAgo": 7000, "from": { "name": "Daniel Okafor", "email": "daniel@northwind.studio" },
+          "to": [{ "name": "Studio", "email": "studio@northwind.studio" }],
+          "body": "It's been a big month, so lunch is on the studio this Friday. 12:30 at Ottilie's. Reply with any dietary needs and I'll pass them on.\n\nDaniel" }
+      ]
+    },
+    {
+      "id": "d12", "accountId": "a1", "mailboxIds": ["a1-inbox"],
+      "subject": "Lease renewal for Flat 3",
+      "messages": [
+        { "id": "d12m1", "minutesAgo": 8300, "from": { "name": "Grace Bell", "email": "grace@bell-lettings.co" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "Dear Alex,\n\nYour tenancy at Flat 3, 14 Quay Road comes up for renewal on 1 December. The landlord is happy to renew for another twelve months on the same terms.\n\nThe renewal agreement is attached. Could you sign and return it by 15 November?\n\nKind regards,\nGrace Bell",
+          "attachments": [{ "name": "renewal-agreement.pdf", "size": 310000, "type": "application/pdf" }] }
+      ]
+    },
+    {
+      "id": "d13", "accountId": "a1", "mailboxIds": ["a1-inbox", "a1-travel-lisbon"],
+      "subject": "Lisbon recommendations",
+      "messages": [
+        { "id": "d13m1", "minutesAgo": 21000, "from": { "name": "Inês Duarte", "email": "ines@duarte.pt" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "So exciting that you're finally going! A few favourites:\n\n- Breakfast at the bakery behind the Graça viewpoint, go early\n- Tram 28 is lovely but take it from the end of the line\n- Sunset at the Santa Catarina miradouro\n- Dinner in Campo de Ourique, not the Baixa\n\nSend me a photo of the pastéis!\n\nInês" }
+      ]
+    },
+    {
+      "id": "d14", "accountId": "a3", "mailboxIds": ["a3-inbox"],
+      "subject": "Membership renewal for 2027",
+      "messages": [
+        { "id": "d14m1", "minutesAgo": 26000, "from": { "name": "Harbour Rowing Club", "email": "treasurer@harbourrowing.club" },
+          "to": [{ "name": "Alex Morgan", "email": "alex.morgan@harbourrowing.club" }],
+          "body": "Hi Alex,\n\nIt's that time of year. Membership for 2027 stays at £180, or £150 if you renew before 1 December.\n\nYou can pay by bank transfer or at the boathouse on Saturday mornings.\n\nThanks for another great season,\nNiamh" }
+      ]
+    },
+    {
+      "id": "d15", "accountId": "a2", "mailboxIds": ["a2-inbox"],
+      "subject": "Invoice NW-0412 paid",
+      "messages": [
+        { "id": "d15m1", "minutesAgo": 52000, "from": { "name": "Ingrid Solberg", "email": "ingrid@nordlys.hotels" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@northwind.studio" }],
+          "body": "Hi Alex, just to let you know invoice NW-0412 was paid this morning. Thanks again for the workshop.\n\nIngrid" }
+      ]
+    },
+    {
+      "id": "d16", "accountId": "a1", "mailboxIds": ["a1-drafts"],
+      "subject": "Re: Lease renewal for Flat 3",
+      "messages": [
+        { "id": "d16m1", "minutesAgo": 200, "draft": true, "from": { "name": "Alex Morgan", "email": "alex@morgan.family" },
+          "to": [{ "name": "Grace Bell", "email": "grace@bell-lettings.co" }],
+          "body": "Hi Grace,\n\nThanks, I'd be happy to renew. One question before I sign: could the boiler service be booked for" }
+      ]
+    },
+    {
+      "id": "d17", "accountId": "a2", "mailboxIds": ["a2-sent"],
+      "subject": "Re: Halden Coffee: timeline",
+      "messages": [
+        { "id": "d17m1", "minutesAgo": 9800, "from": { "name": "Alex Morgan", "email": "alex@northwind.studio" },
+          "to": [{ "name": "Ingrid Solberg", "email": "ingrid@nordlys.hotels" }],
+          "body": "Hi Ingrid, three weeks works well for us. We'll come to Bergen with two directions and a first look at the palette.\n\nAlex" }
+      ]
+    },
+    {
+      "id": "d18", "accountId": "a1", "mailboxIds": ["a1-archive"],
+      "subject": "Welcome to the neighbourhood garden",
+      "messages": [
+        { "id": "d18m1", "minutesAgo": 90000, "from": { "name": "Quay Road Garden", "email": "hello@quayroadgarden.org" },
+          "to": [{ "name": "Alex Morgan", "email": "alex@morgan.family" }],
+          "body": "Welcome! Your plot is number 12, by the apple trees. Tools are in the shed, the code is on the back of your key tag." }
+      ]
+    }
+  ]
+}

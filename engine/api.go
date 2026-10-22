@@ -1,13 +1,17 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
@@ -43,6 +47,16 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 			respond(w, v, err)
 		}
 	})
+	mux.HandleFunc("PATCH /accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Name string }
+		if decode(w, r, &body) {
+			err := s.RenameAccount(r.PathValue("id"), body.Name)
+			if err == nil {
+				ev.Publish() // other windows' lists and the rail show the new name
+			}
+			respond(w, nil, err)
+		}
+	})
 	mux.HandleFunc("DELETE /accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, sy.RemoveAccount(r.PathValue("id")))
 	})
@@ -76,6 +90,38 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 	mux.HandleFunc("DELETE /drafts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, sy.DeleteDraft(r.PathValue("id")))
 	})
+	// An upload for a message being written: stored like received attachments, named by its hash in Draft.Attachments.
+	mux.HandleFunc("POST /files", func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxUpload))
+		if err != nil {
+			respond(w, nil, problem("Attachments can add up to 25 MB."))
+			return
+		}
+		hash, err := s.saveFile(data)
+		respond(w, map[string]string{"hash": hash}, err)
+	})
+	// An attachment's content, for the preview. "attachment" keeps anything from rendering it by accident.
+	mux.HandleFunc("GET /messages/{id}/attachments/{index}", func(w http.ResponseWriter, r *http.Request) {
+		index, _ := strconv.Atoi(r.PathValue("index"))
+		list, err := s.attachments(r.PathValue("id"))
+		if err == nil && (index < 0 || index >= len(list)) {
+			err = ErrNotFound
+		}
+		var data []byte
+		if err == nil {
+			data, err = s.File(list[index].Hash)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			err = ErrNotFound
+		}
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		w.Header().Set("Content-Type", cmp.Or(list[index].Type, "application/octet-stream"))
+		w.Header().Set("Content-Disposition", "attachment")
+		w.Write(data)
+	})
 	mux.HandleFunc("POST /messages/{id}/attachments/{index}/open", func(w http.ResponseWriter, r *http.Request) {
 		index, err := strconv.Atoi(r.PathValue("index"))
 		if err != nil {
@@ -83,6 +129,10 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 			return
 		}
 		respond(w, nil, openAttachment(s, r.PathValue("id"), index))
+	})
+	mux.HandleFunc("GET /contacts", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.Contacts(time.Now())
+		respond(w, v, err)
 	})
 	mux.HandleFunc("GET /mailboxes", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Mailboxes()
@@ -117,6 +167,8 @@ func routes(s *Store, sy *Syncer, ev *Events) http.Handler {
 	})
 	return mux
 }
+
+const maxUpload = 25<<20 + 1<<10 // 25 MB, the most providers take in one message
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {

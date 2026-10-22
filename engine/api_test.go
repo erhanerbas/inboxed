@@ -32,6 +32,17 @@ func TestAPI(t *testing.T) {
 	if len(list) != 6 || list[0].ID != "t1" || list[0].Messages != nil {
 		t.Fatalf("inbox list: %d rows, first %+v", len(list), list[0])
 	}
+	if res := call("PATCH", "/accounts/a1", `{"name":"Home"}`); res.StatusCode != 204 {
+		t.Errorf("rename: %d", res.StatusCode)
+	}
+	var accounts []Account
+	decode(call("GET", "/accounts", ""), &accounts)
+	if accounts[0].ID != "a1" || accounts[0].Name != "Home" {
+		t.Errorf("after rename: %+v", accounts[0])
+	}
+	if res := call("PATCH", "/accounts/nope", `{"name":"X"}`); res.StatusCode != 404 {
+		t.Errorf("rename a missing account: %d", res.StatusCode)
+	}
 	var thread Thread
 	decode(call("GET", "/threads/t1", ""), &thread)
 	if len(thread.Messages) != 4 {

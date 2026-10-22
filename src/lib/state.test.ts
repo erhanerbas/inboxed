@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { emailHtml } from "./rich";
 
 // A fake engine: records every call, serves one thread, and can be told to fail or to answer slowly.
 const engine = vi.hoisted(() => {
@@ -8,7 +9,7 @@ const engine = vi.hoisted(() => {
     lastDate: "2026-10-15T13:25:00.000Z", unread: true, starred: false, hasAttachments: false,
     messages: [
       { id: "m1", threadId: "t1", from: { name: "You", email: "you@work.example" }, to: [{ name: "Maya Chen", email: "maya@work.example" }], cc: [], date: "2026-10-14T10:00:00.000Z", body: "Hi", attachments: [] },
-      { id: "m2", threadId: "t1", from: { name: "Maya Chen", email: "maya@work.example" }, to: [{ name: "You", email: "you@work.example" }], cc: [], date: "2026-10-15T13:25:00.000Z", body: "Done.", attachments: [] as { name: string; size: number }[] },
+      { id: "m2", threadId: "t1", from: { name: "Maya Chen", email: "maya@work.example" }, to: [{ name: "You", email: "you@work.example" }], cc: [{ name: "Daniel Okafor", email: "daniel@work.example" }], date: "2026-10-15T13:25:00.000Z", body: "Done.", attachments: [] as { name: string; size: number }[] },
     ],
   };
   return {
@@ -54,6 +55,10 @@ vi.mock("./engine", () => {
   return {
     api,
     send: (path: string, method: string, body: unknown) => api(path, { method, body: JSON.stringify(body) }),
+    upload: async () => {
+      engine.calls.push({ path: "/files", method: "POST" });
+      return "f".repeat(64);
+    },
     EngineError,
     follow: (onChange: () => void, onMail: (batch: unknown[]) => void) => {
       engine.emit = onChange;
@@ -126,12 +131,12 @@ describe("filing", () => {
 });
 
 describe("composing", () => {
-  it("reply goes to the last sender, reply all to everyone but you", async () => {
+  it("reply goes to the last sender; reply all keeps the people copied in Cc", async () => {
     await s.reply("t1");
-    expect(s.ui.draft).toMatchObject({ accountId: "a2", threadId: "t1", to: '"Maya Chen" <maya@work.example>', subject: "Re: Inboxed design review" });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", threadId: "t1", to: "Maya Chen <maya@work.example>", cc: "", subject: "Re: Inboxed design review" });
     expect(s.ui.draft.body).toMatch(/Maya Chen wrote:\n> Done\.$/);
     await s.reply("t1", true);
-    expect(s.ui.draft.to).toBe('"Maya Chen" <maya@work.example>, "Daniel Okafor" <daniel@work.example>');
+    expect(s.ui.draft).toMatchObject({ to: "Maya Chen <maya@work.example>", cc: "Daniel Okafor <daniel@work.example>" });
     await s.forward("t1");
     expect(s.ui.draft).toMatchObject({ to: "", subject: "Fwd: Inboxed design review" });
     expect(s.ui.draft.threadId).toBeUndefined(); // a forward starts a new conversation
@@ -161,7 +166,8 @@ describe("composing", () => {
     await s.reply("t1");
     s.ui.draft.body = "Thanks!" + s.ui.draft.body;
     expect(await s.sendDraft()).toBe(null);
-    expect(writes()).toEqual([{ path: "/send", method: "POST", body: { ...s.ui.draft } }]);
+    // What's sent is the editor's HTML made ready for mail apps.
+    expect(writes()).toEqual([{ path: "/send", method: "POST", body: { ...s.ui.draft, html: emailHtml(s.ui.draft.html!) } }]);
     expect(s.ui.composing).toBe(false);
     expect(engine.calls.some((c) => c.path === "/mailboxes")).toBe(true);
   });
@@ -180,7 +186,7 @@ describe("composing", () => {
     s.compose();
     s.ui.draft.subject = "Plans";
     expect(await s.closeCompose()).toBe(null);
-    expect(writes()).toEqual([{ path: "/drafts", method: "PUT", body: { ...s.ui.draft } }]);
+    expect(writes()).toEqual([{ path: "/drafts", method: "PUT", body: { ...s.ui.draft, html: emailHtml(s.ui.draft.html!) } }]);
     expect(s.ui.composing).toBe(false);
   });
 
@@ -223,7 +229,7 @@ describe("composing", () => {
     engine.thread.messages.push(mine);
     try {
       await s.reply("t1");
-      expect(s.ui.draft.to).toBe('"Maya Chen" <maya@work.example>');
+      expect(s.ui.draft.to).toBe("Maya Chen <maya@work.example>");
       expect(s.ui.draft.body).toMatch(/> Done\.$/);
     } finally {
       engine.thread.messages.pop();
@@ -240,7 +246,7 @@ describe("composing", () => {
   it("edit draft resumes it in the panel", async () => {
     await s.openThread("t1");
     s.editDraft({ ...engine.thread.messages[1], subject: "Re: Inboxed design review", draft: true });
-    expect(s.ui.draft).toMatchObject({ accountId: "a2", draftId: "m2", threadId: "t1", to: '"You" <you@work.example>', body: "Done." });
+    expect(s.ui.draft).toMatchObject({ accountId: "a2", draftId: "m2", threadId: "t1", to: "You <you@work.example>", body: "Done." });
     expect(s.ui.composing).toBe(true);
   });
 });
@@ -301,6 +307,15 @@ describe("accounts", () => {
     await s.removeAccount("a2");
     expect(writes()).toContainEqual({ path: "/accounts/a2", method: "DELETE", body: undefined });
     expect(s.ui.accountId).toBe("all");
+  });
+
+  it("renaming shows the new name at once and saves it; an unchanged name saves nothing", async () => {
+    await s.renameAccount("a2", "  Office ");
+    expect(writes()).toEqual([{ path: "/accounts/a2", method: "PATCH", body: { name: "Office" } }]);
+    engine.calls.length = 0;
+    s.data.accounts[0].name = "Office";
+    await s.renameAccount("a2", "Office");
+    expect(writes()).toEqual([]);
   });
 
   it("Sync now asks the engine to sync the account", async () => {
@@ -367,15 +382,28 @@ describe("attachments", () => {
     expect(writes()).toEqual([{ path: "/messages/a2%2Fm%40x/attachments/0/open", method: "POST", body: undefined }]);
   });
 
-  it("forward takes the original's attachments along", async () => {
-    engine.thread.messages[1].attachments = [{ name: "menu.pdf", size: 9 }];
+  it("forward takes the original's attachments along, but not the pictures inside its HTML", async () => {
+    engine.thread.messages[1].attachments = [
+      { name: "menu.pdf", size: 9, hash: "a".repeat(64) },
+      { name: "logo.png", size: 9, hash: "b".repeat(64), inline: true },
+    ] as never;
     try {
       await s.forward("t1");
-      expect(s.ui.draft.forwardOf).toBe("m2");
-      expect(s.ui.forwarding.map((a) => a.name)).toEqual(["menu.pdf"]);
+      expect(s.ui.draft.attachments.map((a) => a.name)).toEqual(["menu.pdf"]);
     } finally {
       engine.thread.messages[1].attachments = [];
     }
+  });
+
+  it("attaching uploads each file and names it by hash; over 25 MB nothing is attached", async () => {
+    await s.compose();
+    const file = (name: string, size: number) => ({ name, size, type: "text/plain" }) as File;
+    await s.attachFiles([file("big.bin", 20 * 1024 ** 2), file("bigger.bin", 6 * 1024 ** 2)]);
+    expect(s.ui.composeError).toMatch(/25 MB; these come to 26\.0 MB/);
+    expect(engine.calls.some((c) => c.path === "/files")).toBe(false);
+    await s.attachFiles([file("a.txt", 5)]);
+    expect(s.ui.draft.attachments).toEqual([{ name: "a.txt", size: 5, type: "text/plain", hash: "f".repeat(64) }]);
+    expect(s.ui.attaching).toBe(0);
   });
 });
 

@@ -19,7 +19,7 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	if err := s.Seed(seedNow); err != nil {
+	if err := s.Seed(seedNow, seedJSON); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -32,7 +32,7 @@ func TestOpenStoreMigratesAndSeedsOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Seed(seedNow); err != nil {
+		if err := s.Seed(seedNow, seedJSON); err != nil {
 			t.Fatal(err)
 		}
 		var version, accounts, threads int
@@ -278,5 +278,20 @@ func TestPutThreadDoesNotSlowWithSize(t *testing.T) {
 	late := put(3000, 3300)
 	if late > 3*early {
 		t.Errorf("300 puts took %v at 3000 threads vs %v at the start: writes slow down as the store grows", late, early)
+	}
+}
+
+func TestDemoSeed(t *testing.T) {
+	s, err := OpenStore(filepath.Join(t.TempDir(), "demo.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.Seed(seedNow, demoJSON); err != nil {
+		t.Fatal(err)
+	}
+	th, err := s.Thread("d5")
+	if err != nil || !strings.Contains(th.Messages[0].HTML, "The quiet interface") {
+		t.Fatalf("newsletter HTML not stored: %v", err)
 	}
 }

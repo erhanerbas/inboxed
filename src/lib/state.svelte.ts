@@ -1,8 +1,9 @@
-import { api, EngineError, follow, send } from "./engine";
-import { addresses, forwardBody, replyQuote, swapSignature, withSignature } from "./format";
+import { api, EngineError, follow, send, upload } from "./engine";
+import { addresses, forwardBody, replyQuote, replyTo, swapSignature, withSignature } from "./format";
 import { deliver, notices, onTap, setBadge } from "./notify";
+import { draftHtml, emailHtml, swapSignatureHtml } from "./rich";
 import { settings } from "./settings.svelte";
-import type { Account, AccountSettings, Attachment, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
+import type { Account, AccountSettings, Contact, Draft, Mailbox, Message, NewMail, Thread, ThreadSummary } from "./types";
 
 /** Mail data, as the engine last reported it. */
 export const data = $state({
@@ -10,6 +11,7 @@ export const data = $state({
   mailboxes: [] as Mailbox[],
   list: [] as ThreadSummary[], // the selected sidebar entry, narrowed by the search query
   thread: null as Thread | null, // the open conversation, with its messages
+  contacts: [] as Contact[], // everyone in the mail, ranked by the engine: address suggestions and @mentions
 });
 
 /** What the user is looking at. */
@@ -19,11 +21,12 @@ export const ui = $state({
   threadId: null as string | null,
   query: "",
   composing: false,
-  draft: { accountId: "", to: "", cc: "", subject: "", body: "" } as Draft,
+  draft: { accountId: "", to: "", cc: "", bcc: "", subject: "", body: "", attachments: [] } as Draft,
+  attaching: 0, // files still uploading for the open draft: Send waits for them
   composeError: "", // why the compose panel couldn't send or save; shown in the panel
   composeKey: 0, // a new message re-mounts the panel (focus, state)
   newMail: [] as NewMail[], // arrived since you last looked, newest first: the banner shows it
-  forwarding: [] as Attachment[], // the attachments going along with a forward (draft.forwardOf), for the panel
+  preview: null as { messageId: string; index: number } | null, // the attachment shown in the preview sheet
   addingAccount: false,
   settingsOpen: false,
   error: "", // shown by the status bar in +page.svelte
@@ -183,6 +186,18 @@ export const removeAccount = (id: string) =>
     await refreshAll();
   });
 
+/** Renames an account: the rail, Settings and the From name on its mail. Shown at once; empty means its address. */
+export function renameAccount(id: string, name: string) {
+  const a = data.accounts.find((x) => x.id === id);
+  const next = name.trim() || a?.email || "";
+  if (!a || a.name === next) return Promise.resolve();
+  a.name = next;
+  return run(async () => {
+    await send(`/accounts/${encodeURIComponent(id)}`, "PATCH", { name: next });
+    await refreshAll();
+  });
+}
+
 export const syncNow = (id: string) =>
   run(async () => {
     await api(`/accounts/${encodeURIComponent(id)}/sync`, { method: "POST" });
@@ -267,22 +282,28 @@ let pristine = ""; // the draft as the panel opened, so closing an untouched one
 export async function compose(draft: Partial<Draft> = {}): Promise<boolean> {
   if (ui.composing && (await closeCompose())) return false;
   const from = senders().find((a) => a.id === ui.accountId) ?? senders()[0];
-  ui.draft = { accountId: from?.id ?? "", to: "", cc: "", subject: "", body: "", ...draft };
+  ui.draft = { accountId: from?.id ?? "", to: "", cc: "", bcc: "", subject: "", body: "", attachments: [], ...draft };
   // A saved draft already has its signature.
   if (!draft.draftId) ui.draft.body = withSignature(ui.draft.body, settings.signatures[ui.draft.accountId] ?? "");
+  ui.draft.html ||= draftHtml(ui.draft.body, !!ui.draft.threadId);
   pristine = JSON.stringify(ui.draft);
-  ui.forwarding = [];
   ui.composeError = "";
+  api<Contact[]>("/contacts").then(
+    (c) => (data.contacts = c),
+    (err) => console.error("contacts", err), // suggestions are a help; typing still works without them
+  );
   ui.composeKey++; // always a fresh panel (focus, busy state), even when reopened while the last one closes
   ui.composing = true;
   return true;
 }
 
-/** The panel's From changed: the signature follows. An untouched message stays untouched (closing it saves nothing). */
-export function changeSender(accountId: string) {
+/** The panel's From changed: the signature follows (above tail, a folded quote). An untouched message stays untouched
+ *  (closing it saves nothing). */
+export function changeSender(accountId: string, tail = "", html = ui.draft.html ?? "") {
   const untouched = JSON.stringify(ui.draft) === pristine;
   const sig = (id: string) => settings.signatures[id] ?? "";
   ui.draft.body = swapSignature(ui.draft.body, sig(ui.draft.accountId), sig(accountId));
+  ui.draft.html = swapSignatureHtml(html, sig(ui.draft.accountId), sig(accountId), tail);
   ui.draft.accountId = accountId;
   if (untouched) pristine = JSON.stringify(ui.draft);
 }
@@ -295,10 +316,13 @@ function failure(err: unknown): string {
   return (ui.composeError = "Couldn't reach the mail engine. Try again, or restart Inboxed if it keeps happening.");
 }
 
+// What the engine gets: the editor's HTML made ready for mail apps.
+const outgoing = (d: Draft): Draft => ({ ...d, html: d.html ? emailHtml(d.html) : "" });
+
 /** Sends the open draft. Resolves to null once sent (the panel closes), else to the reason, with the panel open. */
 export async function sendDraft(): Promise<string | null> {
   try {
-    await send("/send", "POST", ui.draft);
+    await send("/send", "POST", outgoing(ui.draft));
   } catch (err) {
     return failure(err);
   }
@@ -309,12 +333,13 @@ export async function sendDraft(): Promise<string | null> {
 
 /** Closes the panel, saving the draft first if anything was typed. If it can't be saved, the panel stays open. */
 export async function closeCompose(): Promise<string | null> {
+  await uploads; // files still uploading go into the saved draft
   const d = ui.draft;
-  const typed = d.to || d.cc || d.subject || d.body.trim();
+  const typed = d.to || d.cc || d.bcc || d.subject || d.body.trim() || d.attachments.length;
   if (typed && JSON.stringify(d) !== pristine) {
     if (!d.accountId) return (ui.composeError = "Add an account to save this draft, or discard it.");
     try {
-      await send("/drafts", "PUT", d);
+      await send("/drafts", "PUT", outgoing(d));
     } catch (err) {
       return failure(err);
     }
@@ -337,20 +362,20 @@ export function discardDraft() {
 
 /** Resumes a saved draft. It stays a reply when the conversation has other messages. */
 export async function editDraft(m: Message) {
-  // (The attachments shown are the draft's own, and only once its panel actually opened.)
   const thread = data.thread?.id === m.threadId ? data.thread : null;
   const reply = thread?.messages.some((x) => !x.draft && x.id !== m.id);
   const opened = await compose({
     accountId: thread?.accountId ?? m.id.split("/")[0],
     to: addresses(m.to),
     cc: addresses(m.cc),
+    bcc: addresses(m.bcc ?? []),
     subject: m.subject,
     body: m.body,
+    html: m.html,
     threadId: reply ? m.threadId : undefined,
     draftId: m.id,
-    forwardOf: m.attachments.length ? m.id : undefined, // a saved forward keeps its attachments
+    attachments: m.attachments.filter((a) => !a.inline && a.hash), // a saved draft keeps its files
   });
-  if (opened) ui.forwarding = m.attachments;
 }
 
 // The message a reply or forward is about: the newest that isn't a draft of mine.
@@ -360,16 +385,24 @@ const prefixed = (prefix: string, subject: string) =>
   subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
 const fullThread = async (id: string) => (data.thread?.id === id ? data.thread : api<Thread>(`/threads/${encodeURIComponent(id)}`));
 
+const me = (t: Thread) => data.accounts.find((a) => a.id === t.accountId)?.email ?? "";
+
+/** Whether Reply All would reach anyone Reply doesn't: more than one other person on the message it answers. */
+export function canReplyAll(t: Thread) {
+  const { to, cc } = replyTo(lastSent(t), me(t), true);
+  return to.length + cc.length > 1;
+}
+
 export const reply = (id: string, all = false) =>
   run(async () => {
     const thread = await fullThread(id);
-    const me = data.accounts.find((a) => a.id === thread.accountId)?.email;
     const last = lastSent(thread);
-    const to = all ? thread.participants : last.from.email === me ? last.to : [last.from];
+    const { to, cc } = replyTo(last, me(thread), all);
     await compose({
       accountId: thread.accountId,
       threadId: thread.id,
       to: addresses(to),
+      cc: addresses(cc),
       subject: prefixed("Re:", thread.subject),
       body: replyQuote(last),
     });
@@ -379,15 +412,54 @@ export const forward = (id: string) =>
   run(async () => {
     const thread = await fullThread(id);
     const last = lastSent(thread);
-    const files = last.attachments.filter((a) => !a.inline); // signature logos stay behind with the HTML
-    const opened = await compose({
+    await compose({
       accountId: thread.accountId,
       subject: prefixed("Fwd:", thread.subject),
       body: forwardBody(last, thread.subject),
-      forwardOf: files.length ? last.id : undefined,
+      attachments: last.attachments.filter((a) => !a.inline && a.hash), // signature logos stay behind with the HTML
     });
-    if (opened) ui.forwarding = files;
   });
+
+/** The most a message's attachments can add up to: what most providers accept. */
+export const MAX_ATTACHMENTS = 25 * 1024 ** 2;
+
+let uploads: Promise<unknown> = Promise.resolve(); // what closing waits for
+let uploadingBytes = 0;
+
+/** Attaches files to the open draft: stored in the engine, then named by hash. Over the limit, nothing is attached. */
+export function attachFiles(files: File[]): Promise<void> {
+  const job = attach(files);
+  uploads = Promise.all([uploads, job]);
+  return job;
+}
+
+async function attach(files: File[]) {
+  if (!ui.composing || !files.length) return;
+  const total = [...ui.draft.attachments, ...files].reduce((sum, f) => sum + f.size, uploadingBytes);
+  if (total > MAX_ATTACHMENTS) {
+    ui.composeError = `Attachments can add up to 25 MB; these come to ${(total / 1024 ** 2).toFixed(1)} MB.`;
+    return;
+  }
+  const draft = ui.draft;
+  ui.attaching += files.length;
+  for (const f of files) {
+    uploadingBytes += f.size;
+    try {
+      const hash = await upload(f);
+      if (ui.composing && ui.draft === draft) draft.attachments.push({ name: f.name, size: f.size, type: f.type || undefined, hash });
+    } catch (err) {
+      failure(err);
+    } finally {
+      uploadingBytes -= f.size;
+      ui.attaching--;
+    }
+  }
+}
+
+export const detach = (index: number) => void ui.draft.attachments.splice(index, 1);
+
+/** Shows an attachment in the preview sheet. */
+export const previewAttachment = (messageId: string, index: number) => void (ui.preview = { messageId, index });
 
 /** Saves an attachment to Downloads and shows it in the file manager (the engine does both). */
 export async function openAttachment(messageId: string, index: number) {

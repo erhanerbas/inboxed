@@ -18,6 +18,13 @@ async function popup(entries: MenuEntry[], x: number, y: number) {
   await menu.popup(new LogicalPosition(x, y));
 }
 
+/** A native menu under a button (the compose toolbar's •••). Outside Tauri there's no native menu: nothing opens. */
+export function menuAt(el: HTMLElement, entries: MenuEntry[]) {
+  if (!inTauri()) return;
+  const r = el.getBoundingClientRect();
+  popup(entries, r.left, r.bottom + 4).catch((err) => console.error("menu", err));
+}
+
 /**
  * `use:contextmenu={() => entries}` opens the menu on right-click, and from the keyboard
  * with Shift+F10 or the context-menu key (placed under the element).

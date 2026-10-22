@@ -1,5 +1,6 @@
 <script lang="ts">
   import AddAccount from "$lib/components/AddAccount.svelte";
+  import AttachmentPreview from "$lib/components/AttachmentPreview.svelte";
   import Compose from "$lib/components/Compose.svelte";
   import NewMailBanner from "$lib/components/NewMailBanner.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
@@ -62,11 +63,13 @@
   // the system menu for Copy and Look Up; development builds keep Inspect.
   function oncontextmenu(e: MouseEvent) {
     if (import.meta.env.DEV || e.defaultPrevented) return;
-    if (!(e.target as HTMLElement).closest("input, textarea, .selectable")) e.preventDefault();
+    if (!(e.target as HTMLElement).closest("input, textarea, [contenteditable], .selectable")) e.preventDefault();
   }
 </script>
 
-<svelte:window {onkeydown} {oncontextmenu} />
+<!-- A file dropped anywhere but the compose panel would otherwise replace the app with it (Tauri's own drop handling is
+     off so the panel can take files). -->
+<svelte:window {onkeydown} {oncontextmenu} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} />
 
 <div class="flex h-screen overflow-hidden">
   <!-- The rail and the list fold away together; inert while hidden, so Tab never lands in them. -->
@@ -114,6 +117,9 @@
 {/if}
 {#if ui.settingsOpen}
   <Settings />
+{/if}
+{#if ui.preview}
+  <AttachmentPreview />
 {/if}
 
 <!-- Always rendered, so screen readers announce the message when it appears. -->

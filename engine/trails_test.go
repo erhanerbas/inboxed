@@ -143,7 +143,7 @@ func TestMigrationForgetsImportedMail(t *testing.T) {
 	if err := s.migrateTo(5); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Seed(seedNow); err != nil {
+	if err := s.Seed(seedNow, seedJSON); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range []string{

@@ -46,7 +46,7 @@ func parseMessage(raw []byte, fallbackDate time.Time) (parsed, error) {
 	if from := addresses(h, "From"); len(from) > 0 {
 		p.From = from[0]
 	}
-	p.To, p.Cc = addresses(h, "To"), addresses(h, "Cc")
+	p.To, p.Cc, p.Bcc = addresses(h, "To"), addresses(h, "Cc"), addresses(h, "Bcc")
 	if p.Date, err = h.Date(); err != nil || p.Date.IsZero() {
 		p.Date = fallbackDate
 	}

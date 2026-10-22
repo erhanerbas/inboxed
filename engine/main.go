@@ -5,7 +5,7 @@
 // "Authorization: Bearer <token>". It exits when stdin closes, which happens
 // when the Tauri app exits.
 //
-// Data lives in INBOXED_DATA_DIR/inboxed.db; INBOXED_SEED=1 fills an empty database with demo mail.
+// Data lives in INBOXED_DATA_DIR/inboxed.db; INBOXED_SEED=1 (or =demo, fuller mail) fills an empty database with demo mail.
 package main
 
 import (
@@ -41,8 +41,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if os.Getenv("INBOXED_SEED") == "1" {
-		if err := store.Seed(time.Now()); err != nil {
+	if seed := map[string][]byte{"1": seedJSON, "demo": demoJSON}[os.Getenv("INBOXED_SEED")]; seed != nil {
+		if err := store.Seed(time.Now(), seed); err != nil {
 			log.Fatal(err)
 		}
 	}

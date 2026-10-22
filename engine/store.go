@@ -118,6 +118,8 @@ var migrations = []string{
 	DELETE FROM pending_changes WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap');
 	DELETE FROM threads WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap');
 	UPDATE mailboxes SET status = '', modseq = 0 WHERE path IS NOT NULL;`,
+	// A draft's Bcc, so resuming it keeps them. Sent mail never names them.
+	`ALTER TABLE messages ADD COLUMN bcc TEXT NOT NULL DEFAULT '[]';`,
 }
 
 type Store struct {
@@ -282,7 +284,7 @@ func (s *Store) Thread(id string) (Thread, error) {
 	} else if err != nil {
 		return t, err
 	}
-	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments, subject, html,
+	rows, err := s.db.Query(`SELECT id, sender, recipients, cc, date, body, attachments, subject, html, bcc,
 		EXISTS (SELECT 1 FROM message_locations ml JOIN mailboxes mb ON mb.id = ml.mailbox_id
 			WHERE ml.message_id = messages.id AND mb.role = 'drafts')
 		FROM messages WHERE thread_id = ? ORDER BY date`, id)
@@ -293,14 +295,14 @@ func (s *Store) Thread(id string) (Thread, error) {
 	budget := int64(maxInlineThread)
 	for rows.Next() {
 		m := Message{ThreadID: id}
-		var from, to, cc, attachments string
-		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments, &m.Subject, &m.HTML, &m.Draft); err != nil {
+		var from, to, cc, attachments, bcc string
+		if err := rows.Scan(&m.ID, &from, &to, &cc, &m.Date, &m.Body, &attachments, &m.Subject, &m.HTML, &bcc, &m.Draft); err != nil {
 			return t, err
 		}
 		for _, f := range []struct {
 			src string
 			dst any
-		}{{from, &m.From}, {to, &m.To}, {cc, &m.Cc}, {attachments, &m.Attachments}} {
+		}{{from, &m.From}, {to, &m.To}, {cc, &m.Cc}, {bcc, &m.Bcc}, {attachments, &m.Attachments}} {
 			if err := json.Unmarshal([]byte(f.src), f.dst); err != nil {
 				return t, err
 			}

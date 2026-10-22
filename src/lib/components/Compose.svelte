@@ -1,29 +1,76 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { Attachment01Icon, Cancel01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+  import { onDestroy, onMount } from "svelte";
+  import type { Editor } from "@tiptap/core";
+  import { Attachment01Icon, Cancel01Icon, Delete02Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
+  import { addRecipient, emailsIn, matchContacts } from "$lib/contacts";
+  import { createEditor, type MentionState } from "$lib/editor";
   import { formatSize } from "$lib/format";
+  import { splitQuoted } from "$lib/quote";
+  import { quoteHtml } from "$lib/rich";
+  import AddressField from "./AddressField.svelte";
   import Icon from "./Icon.svelte";
+  import Suggestions from "./Suggestions.svelte";
+  import Toolbar from "./Toolbar.svelte";
   import { rise } from "$lib/motion";
-  import { changeSender, closeCompose, discardDraft, sendDraft, senders, ui } from "$lib/state.svelte";
+  import { attachFiles, changeSender, closeCompose, data, detach, discardDraft, sendDraft, senders, ui } from "$lib/state.svelte";
 
   let form = $state<HTMLFormElement>();
   let to = $state<HTMLInputElement>();
-  let body = $state<HTMLTextAreaElement>();
+  let page = $state<HTMLElement>();
+  let files = $state<HTMLInputElement>();
+  let editor = $state<Editor>();
   let busy = $state<"" | "sending" | "saving">("");
+  let dragging = $state(false);
+  let mention = $state<MentionState | null>(null);
+  let copies = $state(!!(ui.draft.cc || ui.draft.bcc)); // Cc and Bcc show once asked for, or when the draft has them
   const from = $derived(senders());
   const isMac = navigator.platform.startsWith("Mac");
+  const everyone = $derived(emailsIn(`${ui.draft.to},${ui.draft.cc},${ui.draft.bcc}`));
 
-  // A reply already knows who it's for, so start in the message body, above the quote.
+  // A reply's quoted history folds away under •••, as in the thread, so the box opens on what you write. It stays out
+  // of the editor but goes with the message (html and body end with it); ••• puts it into the editor.
+  const { quoted } = ui.draft.threadId ? splitQuoted(ui.draft.body) : { quoted: "" };
+  const tailHtml = quoted ? quoteHtml(quoted) : "";
+  const tailText = `\n\n${quoted}`;
+  let folded = $state(!!quoted && (ui.draft.html ?? "").endsWith(tailHtml));
+  const visible = () => (folded ? (ui.draft.html ?? "").slice(0, -tailHtml.length) : (ui.draft.html ?? ""));
+
   onMount(() => {
-    if (ui.draft.to && body) {
-      body.focus();
-      body.setSelectionRange(0, 0);
-    } else to?.focus();
+    editor = createEditor(page!, {
+      html: visible(),
+      onChange: (html, text) => {
+        ui.draft.html = html + (folded ? tailHtml : "");
+        ui.draft.body = text + (folded ? tailText : "");
+      },
+      mention: {
+        items: (query) => matchContacts(data.contacts, query, []),
+        show: (state) => (mention = state),
+        // Mentioning someone brings them into the conversation.
+        picked: (c) => {
+          if (!everyone.includes(c.email.toLowerCase())) ui.draft.to = addRecipient(ui.draft.to, c);
+        },
+      },
+    });
+    // A reply already knows who it's for, so start in the message, above the quote.
+    if (ui.draft.to) editor.commands.focus("start");
+    else to?.focus();
   });
+  onDestroy(() => editor?.destroy());
+
+  function unfold() {
+    folded = false;
+    editor?.chain().insertContentAt(editor.state.doc.content.size, tailHtml).focus("end").run();
+  }
+
+  function sender(accountId: string) {
+    // The editor's own HTML: a resumed draft arrives as sent (emailHtml), where the old signature can't be found.
+    changeSender(accountId, folded ? tailHtml : "", editor && editor.getHTML() + (folded ? tailHtml : ""));
+    editor?.commands.setContent(visible(), { emitUpdate: false });
+  }
 
   // Only the Send button and ⌘Enter send: the panel isn't a submitting form, so Enter in a field never does.
   async function send() {
-    if (busy || !from.length) return;
+    if (busy || ui.attaching || !from.length) return;
     busy = "sending";
     await sendDraft();
     busy = "";
@@ -36,13 +83,22 @@
     await closeCompose();
     busy = "";
   }
+
+  const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files");
+  function drop(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation(); // the editor would otherwise insert the file's name
+    dragging = false;
+    attachFiles([...(e.dataTransfer?.files ?? [])]);
+  }
 </script>
 
-<!-- Esc closes the panel unless something else already handled it (search, an IME, the add-account dialog).
+<!-- Esc closes the panel unless something else already handled it (a suggestion list, search, an IME, a dialog).
      ⌘Enter (Ctrl+Enter elsewhere) sends while typing in it. -->
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !ui.addingAccount && !ui.removingAccount) close();
+    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !ui.addingAccount && !ui.removingAccount && !ui.preview && !ui.settingsOpen) close();
     if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey) && form?.contains(document.activeElement)) {
       e.preventDefault();
       send();
@@ -55,7 +111,18 @@
   transition:rise|global
   aria-label="New message"
   onsubmit={(e) => e.preventDefault()}
-  class="fixed right-6 bottom-6 z-20 flex h-[30rem] max-h-[calc(100vh-3rem)] w-[36rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden shadow-float rounded-2xl border border-line bg-float"
+  ondragover={(e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragging = true;
+  }}
+  ondragleave={(e) => {
+    if (!form?.contains(e.relatedTarget as Node)) dragging = false;
+  }}
+  ondropcapture={drop}
+  class="fixed right-6 bottom-6 z-20 flex h-[36rem] max-h-[calc(100vh-3rem)] w-[42rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border bg-float shadow-float {dragging
+    ? 'border-dashed border-ink'
+    : 'border-line'}"
 >
   <header class="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
     <h2 class="truncate font-semibold">{ui.draft.subject || "New message"}</h2>
@@ -67,7 +134,7 @@
   <label class="field">
     <span>From</span>
     {#if from.length}
-      <select value={ui.draft.accountId} onchange={(e) => changeSender(e.currentTarget.value)}>
+      <select value={ui.draft.accountId} onchange={(e) => sender(e.currentTarget.value)}>
         {#each from as a (a.id)}
           <option value={a.id}>{a.name} · {a.email}</option>
         {/each}
@@ -77,41 +144,103 @@
     {/if}
   </label>
   <!-- Plain text, not type=email: "Name <email>" is allowed, and the engine names any address it can't read. -->
-  <label class="field">
-    <span>To</span><input bind:this={to} bind:value={ui.draft.to} autocomplete="off" spellcheck="false" />
-  </label>
-  <label class="field"><span>Cc</span><input bind:value={ui.draft.cc} autocomplete="off" spellcheck="false" /></label>
+  <AddressField label="To" bind:value={ui.draft.to} bind:input={to} contacts={data.contacts} exclude={everyone}>
+    {#snippet end()}
+      {#if !copies}
+        <button type="button" class="shrink-0 rounded-md px-1.5 text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10" onclick={() => (copies = true)}>
+          Cc Bcc
+        </button>
+      {/if}
+    {/snippet}
+  </AddressField>
+  {#if copies}
+    <AddressField label="Cc" bind:value={ui.draft.cc} contacts={data.contacts} exclude={everyone} />
+    <AddressField label="Bcc" bind:value={ui.draft.bcc} contacts={data.contacts} exclude={everyone} />
+  {/if}
   <label class="field"><span>Subject</span><input bind:value={ui.draft.subject} /></label>
-  <textarea
-    bind:this={body}
-    bind:value={ui.draft.body}
-    aria-label="Message"
-    class="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-read outline-none"
-  ></textarea>
 
-  {#if ui.draft.forwardOf && ui.forwarding.length}
-    <ul class="flex shrink-0 flex-wrap gap-2 px-4 pb-3" aria-label="Attachments from the original">
-      {#each ui.forwarding.filter((a) => !a.inline) as a, i (i)}
-        <li class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-caption">
+  {#if editor}<Toolbar {editor} />{/if}
+  <!-- Mail is written on white, like it's read; the dark theme inverts the page as it does received mail. -->
+  <div bind:this={page} class="compose-scroll min-h-0 flex-1 overflow-y-auto"></div>
+  {#if folded}
+      <button
+        type="button"
+        class="mx-4 my-2 grid h-6 w-9 shrink-0 place-items-center rounded-full bg-raised text-ink-muted transition-colors duration-100 hover:text-ink active:bg-ink/10"
+        aria-label="Show quoted text"
+        title="Show quoted text"
+        onclick={unfold}
+      >
+        <Icon icon={MoreHorizontalIcon} size={14} />
+      </button>
+  {/if}
+
+  {#if ui.draft.attachments.length || ui.attaching}
+    <ul class="flex shrink-0 flex-wrap gap-2 border-t border-line px-4 py-2.5" aria-label="Attachments">
+      {#each ui.draft.attachments as a, i (a.hash ?? i)}
+        <li class="flex items-center gap-1.5 rounded-full border border-line py-1 pr-1 pl-3 text-caption">
           <Icon icon={Attachment01Icon} size={12} class="text-ink-muted" />
-          {a.name}
+          <span class="max-w-56 truncate">{a.name}</span>
           <span class="text-ink-muted">{formatSize(a.size)}</span>
+          <button
+            type="button"
+            class="grid size-5 place-items-center rounded-full text-ink-muted transition-colors duration-100 hover:bg-ink/5 hover:text-ink active:bg-ink/10"
+            aria-label="Remove {a.name}"
+            title="Remove"
+            onclick={() => detach(i)}
+          >
+            <Icon icon={Cancel01Icon} size={12} />
+          </button>
         </li>
       {/each}
+      {#if ui.attaching}<li class="flex items-center px-1 text-caption text-ink-muted">Attaching…</li>{/if}
     </ul>
   {/if}
   {#if ui.composeError}
     <p role="alert" class="mx-3 mb-2 rounded-lg bg-raised px-3 py-2 wrap-anywhere">{ui.composeError}</p>
   {/if}
   <footer class="flex shrink-0 items-center justify-between border-t border-line px-3 py-2">
-    <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" disabled={!!busy} onclick={discardDraft}>
-      <Icon icon={Delete02Icon} size={16} />
-    </button>
+    <span class="flex items-center gap-1">
+      <button type="button" class="icon-btn" aria-label="Discard draft" title="Discard draft" disabled={!!busy} onclick={discardDraft}>
+        <Icon icon={Delete02Icon} size={16} />
+      </button>
+      <button type="button" class="icon-btn" aria-label="Attach files" title="Attach files (or drop them here)" onclick={() => files?.click()}>
+        <Icon icon={Attachment01Icon} size={16} />
+      </button>
+      <input
+        bind:this={files}
+        type="file"
+        multiple
+        hidden
+        onchange={(e) => {
+          attachFiles([...(e.currentTarget.files ?? [])]);
+          e.currentTarget.value = ""; // the same file can be picked again
+        }}
+      />
+    </span>
     <span class="flex items-center gap-3">
       {#if busy === "saving"}<span class="text-caption text-ink-muted">Saving draft…</span>{/if}
-      <button type="button" class="btn-primary" disabled={!from.length || !!busy} title="Send ({isMac ? '⌘' : 'Ctrl+'}Enter)" onclick={send}>
+      <button
+        type="button"
+        class="btn-primary"
+        disabled={!from.length || !!busy || ui.attaching > 0}
+        title="Send ({isMac ? '⌘' : 'Ctrl+'}Enter)"
+        onclick={send}
+      >
         {busy === "sending" ? "Sending…" : "Send"}
       </button>
     </span>
   </footer>
+
+  {#if mention?.rect}
+    <!-- Below the caret, or above it near the bottom of the window. -->
+    {@const below = mention.rect.bottom + 300 < innerHeight}
+    <div
+      class="fixed z-40"
+      style:left="{Math.min(mention.rect.left, innerWidth - 336)}px"
+      style:top={below ? `${mention.rect.bottom + 4}px` : undefined}
+      style:bottom={below ? undefined : `${innerHeight - mention.rect.top + 4}px`}
+    >
+      <Suggestions id="suggest-mention" items={mention.items} active={mention.active} onpick={mention.pick} />
+    </div>
+  {/if}
 </form>

@@ -210,6 +210,48 @@
       @apply h-full min-w-0 flex-1 bg-transparent text-ink outline-none;
     }
   }
+  /* The compose editor: a white page in the font and size mail goes out in (rich.ts), single-spaced like what's sent. */
+  .compose-scroll {
+    background: #fff;
+    color: #1c1b1b;
+    color-scheme: light;
+  }
+  .compose-page {
+    @apply min-h-full px-4 py-3 outline-none;
+    font: 11pt/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow-wrap: anywhere;
+    & p {
+      margin: 0;
+    }
+    & ul {
+      @apply list-disc pl-6;
+    }
+    & ol {
+      @apply list-decimal pl-6;
+    }
+    & blockquote {
+      border-left: 2px solid #d4d4d4;
+      padding-left: 0.75rem;
+      color: #525252;
+    }
+    & a {
+      color: #0b5394;
+      text-decoration: underline;
+    }
+    & a[data-type="mention"] {
+      color: inherit;
+      font-weight: 500;
+      text-decoration: none;
+      background: rgb(0 0 0 / 0.07);
+      border-radius: 4px;
+      padding: 0 2px;
+    }
+  }
+  /* #d9d9d9 inverts to the dark float surface; hues keep their meaning through the rotation. */
+  :root[data-theme="dark"] .compose-scroll {
+    background: #d9d9d9;
+    filter: invert(1) hue-rotate(180deg);
+  }
   /* Label above its input, used in forms. */
   .stack-field {
     @apply flex flex-col gap-1.5 text-caption font-medium text-ink-muted;

@@ -7,7 +7,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	netmail "net/mail"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,16 +22,20 @@ type Draft struct {
 	AccountID string `json:"accountId"`
 	To        string `json:"to"`
 	Cc        string `json:"cc"`
+	Bcc       string `json:"bcc"` // sent to, never named in what's sent; a saved draft keeps them
 	Subject   string `json:"subject"`
 	Body      string `json:"body"`
+	HTML      string `json:"html"` // the formatted message; Body is its plain-text version, sent alongside
 	ThreadID  string `json:"threadId"`
 	DraftID   string `json:"draftId"`
-	ForwardOf string `json:"forwardOf"` // a message whose attachments go along
+	// Files by content hash: uploads (POST /files) and the stored attachments a forward or a resumed draft carries.
+	Attachments []Attachment `json:"attachments"`
 }
 
 // Outgoing is a message ready to send: RFC 5322 bytes and the SMTP envelope.
 type Outgoing struct {
 	Raw        []byte
+	SentCopy   []byte // what's filed in Sent: Raw, plus the Bcc header when there is one
 	From       string
 	Recipients []string
 }
@@ -77,7 +83,11 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 	if err != nil {
 		return Outgoing{}, err
 	}
-	if len(to)+len(cc) == 0 && !draft {
+	bcc, err := recipients(d.Bcc)
+	if err != nil {
+		return Outgoing{}, err
+	}
+	if len(to)+len(cc)+len(bcc) == 0 && !draft {
 		return Outgoing{}, problem("Add at least one recipient.")
 	}
 
@@ -91,6 +101,9 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 	}
 	if len(cc) > 0 {
 		h.SetAddressList("Cc", cc)
+	}
+	if len(bcc) > 0 && draft {
+		h.SetAddressList("Bcc", bcc)
 	}
 	h.SetSubject(d.Subject)
 	h.SetDate(now)
@@ -113,84 +126,119 @@ func (s *Store) Compose(d Draft, now time.Time, draft bool) (Outgoing, error) {
 		h.SetMsgIDList("In-Reply-To", []string{refs[len(refs)-1]})
 		h.SetMsgIDList("References", refs)
 	}
-	var files []Attachment
-	if d.ForwardOf != "" {
-		if !strings.HasPrefix(d.ForwardOf, d.AccountID+"/") {
-			return Outgoing{}, problem("Forward from the account the message is in.")
-		}
-		all, err := s.attachments(d.ForwardOf)
-		if err != nil {
-			return Outgoing{}, err
-		}
-		for _, f := range all {
-			if !f.Inline { // images shown in the original's HTML (a signature logo) stay with it
-				files = append(files, f)
-			}
-		}
-	}
-	body := strings.ReplaceAll(strings.ReplaceAll(d.Body, "\r\n", "\n"), "\n", "\r\n")
+	crlf := func(s string) string { return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n") }
+	sentHeader := mail.Header{Header: h.Header.Copy()} // writing the body changes the header it's given
 	var buf bytes.Buffer
-	if err := s.writeBody(&buf, h, body, files); err != nil {
+	if err := s.writeBody(&buf, h, crlf(d.Body), crlf(d.HTML), d.Attachments); err != nil {
 		return Outgoing{}, err
 	}
-	out := Outgoing{Raw: buf.Bytes(), From: email}
-	for _, a := range append(to, cc...) {
+	out := Outgoing{Raw: buf.Bytes(), SentCopy: buf.Bytes(), From: email}
+	// Your Sent copy shows who you Bcc'd, as in other mail apps; what's transmitted never does.
+	if len(bcc) > 0 && !draft {
+		sentHeader.SetAddressList("Bcc", bcc)
+		var sent bytes.Buffer
+		if err := s.writeBody(&sent, sentHeader, crlf(d.Body), crlf(d.HTML), d.Attachments); err != nil {
+			return Outgoing{}, err
+		}
+		out.SentCopy = sent.Bytes()
+	}
+	for _, a := range slices.Concat(to, cc, bcc) {
 		out.Recipients = append(out.Recipients, a.Address)
 	}
 	return out, nil
 }
 
-// writeBody writes the text, alone or (with files) as the first part of multipart/mixed followed by the files.
-func (s *Store) writeBody(buf *bytes.Buffer, h mail.Header, body string, files []Attachment) error {
-	var text mail.InlineHeader
-	text.Set("Content-Type", "text/plain; charset=utf-8")
-	text.Set("Content-Transfer-Encoding", "quoted-printable")
-	if len(files) == 0 {
+// writeBody writes the text, or the text and HTML as multipart/alternative, alone or (with files) as the first part
+// of multipart/mixed followed by the files.
+func (s *Store) writeBody(buf *bytes.Buffer, h mail.Header, body, html string, files []Attachment) error {
+	texts := []struct{ kind, content string }{{"text/plain", body}}
+	if html != "" {
+		texts = append(texts, struct{ kind, content string }{"text/html", html})
+	}
+	write := func(w io.WriteCloser, content string) error {
+		if _, err := io.WriteString(w, content); err != nil {
+			return err
+		}
+		return w.Close()
+	}
+	part := func(kind string) mail.InlineHeader {
+		var ph mail.InlineHeader
+		ph.Set("Content-Type", kind+"; charset=utf-8")
+		ph.Set("Content-Transfer-Encoding", "quoted-printable")
+		return ph
+	}
+	if len(files) == 0 && html == "" {
 		h.Set("Content-Type", "text/plain; charset=utf-8")
 		h.Set("Content-Transfer-Encoding", "quoted-printable")
 		w, err := mail.CreateSingleInlineWriter(buf, h)
 		if err != nil {
 			return err
 		}
-		if _, err := w.Write([]byte(body)); err != nil {
+		return write(w, body)
+	}
+	if len(files) == 0 {
+		iw, err := mail.CreateInlineWriter(buf, h)
+		if err != nil {
 			return err
 		}
-		return w.Close()
+		for _, t := range texts {
+			w, err := iw.CreatePart(part(t.kind))
+			if err == nil {
+				err = write(w, t.content)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return iw.Close()
 	}
 	mw, err := mail.CreateWriter(buf, h)
 	if err != nil {
 		return err
 	}
-	tw, err := mw.CreateSingleInline(text)
-	if err != nil {
-		return err
-	}
-	if _, err := tw.Write([]byte(body)); err != nil {
-		return err
-	}
-	if err := tw.Close(); err != nil {
-		return err
+	if html == "" {
+		tw, err := mw.CreateSingleInline(part("text/plain"))
+		if err == nil {
+			err = write(tw, body)
+		}
+		if err != nil {
+			return err
+		}
+	} else {
+		iw, err := mw.CreateInline()
+		if err != nil {
+			return err
+		}
+		for _, t := range texts {
+			w, err := iw.CreatePart(part(t.kind))
+			if err == nil {
+				err = write(w, t.content)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if err := iw.Close(); err != nil {
+			return err
+		}
 	}
 	for _, f := range files {
 		data, err := s.File(f.Hash)
 		if err != nil {
-			return problem(fmt.Sprintf("Inboxed doesn't have “%s” any more, so it can't be forwarded.", f.Name))
+			return problem(fmt.Sprintf("Inboxed doesn't have “%s” any more. Remove it and attach it again.", f.Name))
 		}
 		var ah mail.AttachmentHeader
 		ah.Set("Content-Type", cmp.Or(f.Type, "application/octet-stream"))
 		ah.Set("Content-Transfer-Encoding", "base64")
 		ah.SetFilename(f.Name)
-		if f.CID != "" {
-			ah.Set("Content-Id", "<"+f.CID+">")
-		}
 		aw, err := mw.CreateAttachment(ah)
+		if err == nil {
+			_, err = aw.Write(data)
+		}
+		if err == nil {
+			err = aw.Close()
+		}
 		if err != nil {
-			return err
-		}
-		if _, err := aw.Write(data); err != nil {
-			return err
-		}
-		if err := aw.Close(); err != nil {
 			return err
 		}
 	}

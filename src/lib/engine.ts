@@ -25,19 +25,30 @@ function connect(): Promise<Engine> {
     : Promise.reject(new Error("No engine: run inside Tauri, or start `npm run dev:engine` with .env.development.local"));
 }
 
-/** Calls the Go engine's HTTP API. Every UI-to-engine request goes through here. */
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const { url, token } = await (engine ??= connect());
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
-  if (init.body) headers.set("Content-Type", "application/json");
+  if (typeof init.body === "string") headers.set("Content-Type", "application/json");
   const res = await fetch(url + path, { ...init, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new EngineError(res.status, body.error ?? res.statusText);
   }
+  return res;
+}
+
+/** Calls the Go engine's HTTP API. Every UI-to-engine request goes through here. */
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await request(path, init);
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
+
+/** A file's content from the engine (an attachment, for the preview). */
+export const fetchFile = async (path: string) => (await request(path)).blob();
+
+/** Stores a file for a message being written; resolves to its hash, which the draft names it by. */
+export const upload = async (file: Blob) => (await api<{ hash: string }>("/files", { method: "POST", body: file })).hash;
 
 export const send = (path: string, method: string, body: unknown) =>
   api<void>(path, { method, body: JSON.stringify(body) });
